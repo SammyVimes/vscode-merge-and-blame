@@ -1,0 +1,27 @@
+Merge & Blame
+
+The merge state transitions, line alignment, Myers sequence comparison,
+chunk optimizers, and word-conflict resolver in src/core/ are adapted
+from / informed by the IntelliJ Platform implementation:
+Copyright 2000-2026 JetBrains s.r.o. and contributors.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+Source: https://github.com/JetBrains/intellij-community
+Reference revision: 4cc45ea6284376df26b1d290ea82fd55aae33cf7
+
+test/fixtures/merge-actions.json and test/fixtures/word-resolution.json contain
+adapted examples from IntelliJ's MergeTest.kt and MergeResolveUtilTest.kt.
+Copyright 2000-2026 JetBrains s.r.o. and contributors, Apache-2.0.
+
+test/fixtures/line-ranges.json and test/fixtures/text-resolution.json contain
+independently generated inputs and oracle output recorded from the installed
+CLion comparison engine, alongside the attributed upstream text examples.
+
+This project is independent of JetBrains and is not endorsed by JetBrains.
+Monaco Editor, jsdiff, and marked are distributed under the MIT license.
+DOMPurify is used under the Apache-2.0 option of its dual license. Its patched
+package replaces Monaco's vendored sanitizer during bundling. Their license
+texts are included in THIRD_PARTY_NOTICES.txt in packaged builds.
+
+JetBrains Mono Regular is bundled under the SIL Open Font License 1.1.
+Copyright 2020 The JetBrains Mono Project Authors.
+See assets/JetBrainsMono-OFL.txt and assets/README.txt for license and provenance.

@@ -1,0 +1,180 @@
+{
+  "name": "merge-and-blame",
+  "displayName": "Merge & Blame",
+  "description": "An IntelliJ-style three-way merge editor and Git blame for VS Code.",
+  "version": "0.3.0",
+  "publisher": "vscode-diff",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SammyVimes/vscode-merge-and-blame.git"
+  },
+  "homepage": "https://sammyvimes.github.io/vscode-merge-and-blame/",
+  "bugs": { "url": "https://github.com/SammyVimes/vscode-merge-and-blame/issues" },
+  "icon": "assets/icon.png",
+  "keywords": ["merge", "three-way merge", "diff", "git", "blame", "IntelliJ", "JetBrains", "conflicts"],
+  "galleryBanner": { "color": "#191a1c", "theme": "dark" },
+  "preview": true,
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "main": "./dist/extension.cjs",
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onCustomEditor:threeWayMerger.editor",
+    "onCustomEditor:threeWayMerger.blame"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "threeWayMerger.open",
+        "title": "Merge & Blame: Open File"
+      },
+      {
+        "command": "threeWayMerger.openConflicts",
+        "title": "Merge & Blame: Resolve Git Conflicts"
+      },
+      {
+        "command": "threeWayMerger.showBlame",
+        "title": "Show Git Blame",
+        "category": "Merge & Blame"
+      },
+      {
+        "command": "threeWayMerger.hideBlame",
+        "title": "Hide Git Blame",
+        "category": "Merge & Blame"
+      },
+      {
+        "command": "threeWayMerger.openBlameCommit",
+        "title": "Open Commit for Blamed Line",
+        "category": "Merge & Blame"
+      }
+    ],
+    "menus": {
+      "scm/resourceState/context": [
+        {
+          "command": "threeWayMerger.open",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "navigation@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "threeWayMerger.open",
+          "when": "resourceScheme == file",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "threeWayMerger.open",
+          "when": "resourceScheme == file && !explorerResourceIsFolder",
+          "group": "navigation"
+        }
+      ],
+      "editor/lineNumber/context": [
+        {
+          "command": "threeWayMerger.showBlame",
+          "when": "resourceScheme == file && !threeWayMerger.nativeBlameVisible",
+          "group": "git@1"
+        },
+        {
+          "command": "threeWayMerger.hideBlame",
+          "when": "resourceScheme == file && threeWayMerger.nativeBlameVisible",
+          "group": "git@1"
+        },
+        {
+          "command": "threeWayMerger.openBlameCommit",
+          "when": "resourceScheme == file && threeWayMerger.nativeBlameVisible",
+          "group": "git@2"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "threeWayMerger.hideBlame",
+          "when": "resourceScheme == file && threeWayMerger.nativeBlameVisible",
+          "group": "gitBlame@1"
+        },
+        {
+          "command": "threeWayMerger.openBlameCommit",
+          "when": "resourceScheme == file && threeWayMerger.nativeBlameVisible",
+          "group": "gitBlame@2"
+        }
+      ]
+    },
+    "customEditors": [
+      {
+        "viewType": "threeWayMerger.editor",
+        "displayName": "Merge & Blame",
+        "selector": [
+          {
+            "filenamePattern": "*"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "configuration": {
+      "title": "Merge & Blame",
+      "properties": {
+        "threeWayMerger.autoApplyNonConflicting": {
+          "type": "boolean",
+          "default": false,
+          "description": "Apply non-conflicting changes when opening a new merge session."
+        },
+        "threeWayMerger.fontSize": {
+          "type": "number",
+          "default": 13,
+          "minimum": 9,
+          "maximum": 30,
+          "description": "Font size in the three merge panes."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:ui": "npm run build:preview && playwright test",
+    "test:reference": "tsx scripts/check-reference.ts",
+    "test:host": "node scripts/test-extension.mjs",
+    "fetch:reference": "node scripts/fetch-reference.mjs",
+    "preview": "node scripts/preview.mjs",
+    "build:preview": "npm run build && node scripts/build-preview.mjs",
+    "package": "vsce package",
+    "vscode:prepublish": "npm run typecheck && npm run build",
+    "test:blame": "node scripts/test-blame.mjs"
+  },
+  "dependencies": {
+    "diff": "^8.0.2",
+    "monaco-editor": "^0.57.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "overrides": {
+    "dompurify": "^3.4.17",
+    "@vscode/vsce": {
+      "minimatch": "^11.0.1"
+    }
+  }
+}

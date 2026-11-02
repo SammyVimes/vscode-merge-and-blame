@@ -1,0 +1,170 @@
+[
+  {
+    "base": "",
+    "left": "",
+    "right": "",
+    "expected": ""
+  },
+  {
+    "base": "x x x",
+    "left": "x x x",
+    "right": "x x x",
+    "expected": "x x x"
+  },
+  {
+    "base": "x x x",
+    "left": "x Y x",
+    "right": "x x x",
+    "expected": "x Y x"
+  },
+  {
+    "base": "x x",
+    "left": "x x",
+    "right": "x Y x",
+    "expected": "x Y x"
+  },
+  {
+    "base": "x X x",
+    "left": "x x",
+    "right": "x X x",
+    "expected": "x x"
+  },
+  {
+    "base": "x x x",
+    "left": "x Y x",
+    "right": "x Y x",
+    "expected": "x Y x"
+  },
+  {
+    "base": "x x",
+    "left": "x Y x",
+    "right": "x Y x",
+    "expected": "x Y x"
+  },
+  {
+    "base": "x X x",
+    "left": "x x",
+    "right": "x x",
+    "expected": "x x"
+  },
+  {
+    "base": "x x x",
+    "left": "x Y x x",
+    "right": "x x Z x",
+    "expected": "x Y x Z x"
+  },
+  {
+    "base": "x",
+    "left": "x Y",
+    "right": "Z x",
+    "expected": "Z x Y"
+  },
+  {
+    "base": "x x",
+    "left": "x",
+    "right": "Z x x",
+    "expected": "Z x"
+  },
+  {
+    "base": "x x x",
+    "left": "x Y x",
+    "right": "x Z x",
+    "expected": null
+  },
+  {
+    "base": "x x",
+    "left": "x Y x",
+    "right": "x Z x",
+    "expected": null
+  },
+  {
+    "base": "x X x",
+    "left": "x x",
+    "right": "x X Y x",
+    "expected": null,
+    "greedyExpected": "x Y x"
+  },
+  {
+    "base": "x X x",
+    "left": "x x",
+    "right": "x Y X x",
+    "expected": null,
+    "greedyExpected": "x Y x"
+  },
+  {
+    "base": "x X Y x",
+    "left": "x X x",
+    "right": "x Y x",
+    "expected": null,
+    "greedyExpected": "x x"
+  },
+  {
+    "base": "x X Y Z x",
+    "left": "x X x",
+    "right": "x Z x",
+    "expected": null,
+    "greedyExpected": "x x"
+  },
+  {
+    "base": "x A B C D E F G H K x",
+    "left": "x C F K x",
+    "right": "x A D H x",
+    "expected": null,
+    "greedyExpected": "x x"
+  },
+  {
+    "base": "x X x",
+    "left": "x x",
+    "right": "x Z x",
+    "expected": null,
+    "greedyExpected": "xZ x"
+  },
+  {
+    "base": "x X X x",
+    "left": "x X Y X x",
+    "right": "x x",
+    "expected": null,
+    "greedyExpected": "x Y x"
+  },
+  {
+    "base": "x X x",
+    "left": "x x",
+    "right": "x Y x",
+    "expected": null,
+    "greedyExpected": "xY x"
+  },
+  {
+    "base": "x X X x",
+    "left": "x Y x",
+    "right": "x X Y x",
+    "expected": null,
+    "greedyExpected": "x Y x"
+  },
+  {
+    "base": "version: 1.0.0",
+    "left": "version: 2.0.0",
+    "right": "version: 1.0.4",
+    "expected": "version: 2.0.4"
+  },
+  {
+    "base": "i\n",
+    "left": "i",
+    "right": "\ni",
+    "expected": "i"
+  },
+  {
+    "base": "Y X Y",
+    "left": "Y C\nX\nC Y",
+    "right": "Y \nX\n Y",
+    "expected": "Y \nC\nX\nC Y",
+    "expectedSimple": "Y \nC\nX\nC Y",
+    "note": "Upstream testSimple fixture; greedy result verified using CLion 2026.2.3.1.",
+    "greedyExpected": "Y CXC Y"
+  },
+  {
+    "base": "render(oldName, oldColor);\n",
+    "left": "render(newName, oldColor);\n",
+    "right": "render(oldName, newColor);\n",
+    "expected": "render(newName, newColor);\n"
+  }
+]

@@ -1,0 +1,17 @@
+src/**
+test/**
+scripts/**
+.reference/**
+node_modules/**
+test-results/**
+playwright-report/**
+tsconfig.json
+playwright.config.ts
+package-lock.json
+dist/**/*.map
+assets/*.woff2
+assets/icon.svg
+site/**
+.github/**
+.vscode/**
+.gitignore

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+site/
+.reference/
+*.vsix
+test-results/
+playwright-report/
+.DS_Store

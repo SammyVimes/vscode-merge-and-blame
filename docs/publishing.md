@@ -55,6 +55,13 @@ creating the tag. A Marketplace version can only be published once.
 The Pages workflow only deploys the browser preview. Ordinary pushes to `main`
 do not publish an extension release.
 
+A successful upload does not mean that the public listing is ready. Marketplace
+validates releases asynchronously; the item page can return 404 while the package
+is already downloadable. The workflow separately checks the validated catalog
+and the public page, and reports an accepted upload separately from confirmed
+public availability. If validation does not complete, check the publisher
+dashboard for the service's status or error before attempting another upload.
+
 Manual upload remains available: choose **New extension → Visual Studio Code**
 on the publisher page and upload the generated VSIX.
 

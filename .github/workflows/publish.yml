@@ -82,8 +82,32 @@ jobs:
           name: marketplace-vsix
       - name: Publish the tested VSIX using Trusted Publishing
         run: npx --no-install vsce publish --oidc --packagePath release.vsix
-      - name: Show Marketplace link
+      - name: Check public Marketplace availability
         env:
           RELEASE_VERSION: ${{ needs.build.outputs.version }}
         run: |
-          printf 'Published **Merge & Blame %s** to [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=SemyonDanilov.merge-and-blame).\n' "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const id = 'SemyonDanilov.merge-and-blame';
+          const url = `https://marketplace.visualstudio.com/items?itemName=${id}`;
+          let available = false;
+          try {
+            const response = await fetch('https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery', {
+              method: 'POST',
+              headers: { Accept: 'application/json;api-version=3.0-preview.1', 'Content-Type': 'application/json' },
+              // IncludeVersions (1) + ExcludeNonValidated (32). Downloadable
+              // assets alone do not prove that Marketplace validation passed.
+              body: JSON.stringify({ filters: [{ criteria: [{ filterType: 7, value: id }], pageNumber: 1, pageSize: 1 }], flags: 33 }),
+              signal: AbortSignal.timeout(20000),
+            });
+            if (!response.ok) throw new Error(`Catalog returned HTTP ${response.status}`);
+            const result = await response.json();
+            const version = result.results?.[0]?.extensions?.[0]?.versions?.find(version => version.version === process.env.RELEASE_VERSION);
+            if (version) available = (await fetch(url, { signal: AbortSignal.timeout(20000) })).ok;
+          } catch (error) {
+            console.log(`::warning::Public availability check: ${error.message}`);
+          }
+          const status = available ? 'Available on Marketplace' : 'Upload accepted; public validation/listing is not yet confirmed';
+          if (!available) console.log('::warning::The upload succeeded, but the public Marketplace listing is not confirmed. Check validation status in the publisher dashboard.');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `**${status}** — [Merge & Blame ${process.env.RELEASE_VERSION}](${url}).\n`);
+          JS

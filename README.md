@@ -138,8 +138,8 @@ line-range cases with an installed JetBrains IDE. Set `JETBRAINS_HOME` to its `C
 See [development.md](development.md) for the goal and
 [docs/intellij-reference.md](docs/intellij-reference.md) for the source revision,
 test provenance, architecture, and fidelity differences.
-See [docs/publishing.md](docs/publishing.md) for Marketplace publishing and the
-extension's new identity.
+See [docs/publishing.md](docs/publishing.md) for publishing through GitHub Actions
+with Marketplace Trusted Publishing, and for the extension's new identity.
 
 ## Scope
 

@@ -1,0 +1,89 @@
+name: Publish to Visual Studio Marketplace
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and test the VSIX without publishing
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check release identity and version
+        id: release
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          assert.equal(manifest.publisher, 'SemyonDanilov');
+          assert.equal(manifest.name, 'merge-and-blame');
+          assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+          assert.equal(lock.version, manifest.version, 'package-lock.json must match the release version');
+          assert.equal(lock.packages[''].version, manifest.version);
+          if (process.env.GITHUB_REF_TYPE === 'tag') {
+            assert.equal(process.env.GITHUB_REF_NAME, `v${manifest.version}`, 'Release tag must match package.json');
+          } else {
+            assert.equal(process.env.GITHUB_REF, 'refs/heads/main', 'Run manual publishing from main');
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${manifest.version}\n`);
+          JS
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build:preview
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - name: Package the tested extension
+        run: npm run package -- --out release.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-vsix
+          path: release.vsix
+          if-no-files-found: error
+          overwrite: true
+
+  publish:
+    if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: marketplace-vsix
+      - name: Publish the tested VSIX using Trusted Publishing
+        run: npx --no-install vsce publish --oidc --packagePath release.vsix
+      - name: Show Marketplace link
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          printf 'Published **Merge & Blame %s** to [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=SemyonDanilov.merge-and-blame).\n' "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"

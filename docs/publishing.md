@@ -25,12 +25,38 @@ npm run test:ui
 npm run package
 ```
 
-Open <https://marketplace.visualstudio.com/manage/publishers/SemyonDanilov>,
-choose **New extension → Visual Studio Code**, and upload
-`merge-and-blame-0.3.0.vsix`.
-The web upload uses your Microsoft login and does not require a token in this
-repository. For automated publishing, configure Marketplace Trusted Publishing
-for GitHub Actions; no Marketplace publishing is enabled by the Pages workflow.
+## Publish from GitHub Actions
+
+The [publishing workflow](https://github.com/SammyVimes/vscode-merge-and-blame/actions/workflows/publish.yml)
+uses Marketplace Trusted Publishing with GitHub's OIDC identity. It does not
+need a PAT or a repository secret.
+
+Configure this once under **Trusted Publishing → Create** in the
+[publisher management page](https://marketplace.visualstudio.com/manage/publishers/SemyonDanilov):
+
+| Field | Value |
+| --- | --- |
+| Policy name | `Merge & Blame releases` |
+| Repository owner | `SammyVimes` |
+| Repository | `vscode-merge-and-blame` |
+| Workflow | `publish.yml` |
+| Environment | Leave empty; this workflow does not use a GitHub environment. |
+
+Then choose **Run workflow** on `main` to publish the current version. Enable
+**Build and test the VSIX without publishing** for a dry run. Both modes check
+the publisher/version, run the core and browser tests, and upload a VSIX
+artifact. Publishing uses that exact tested artifact in a separate job.
+
+Pushing a tag such as `v0.3.0` also publishes automatically. Its version must
+match `package.json` and `package-lock.json`; a mismatch fails before publishing.
+For subsequent releases, update both package versions and the changelog before
+creating the tag. A Marketplace version can only be published once.
+
+The Pages workflow only deploys the browser preview. Ordinary pushes to `main`
+do not publish an extension release.
+
+Manual upload remains available: choose **New extension → Visual Studio Code**
+on the publisher page and upload the generated VSIX.
 
 Official instructions:
 <https://code.visualstudio.com/api/working-with-extensions/publishing-extension>.

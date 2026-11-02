@@ -6,10 +6,8 @@ The live preview is deployed to
 
 ## Marketplace publisher
 
-Create a publisher under your Microsoft account at
-<https://marketplace.visualstudio.com/manage> and put its actual ID in the
-`publisher` field of `package.json`. `vscode-diff` is the local-development
-placeholder until that account is created and confirmed. The display name is
+The publisher is **Semyon Danilov**, with ID `SemyonDanilov`. The complete
+extension ID is `SemyonDanilov.merge-and-blame`. The display name is
 **Merge & Blame** and the extension name is `merge-and-blame`.
 
 The manifest includes an original PNG icon, a dark listing banner, search
@@ -27,7 +25,9 @@ npm run test:ui
 npm run package
 ```
 
-Upload `merge-and-blame-0.3.0.vsix` through the publisher management page.
+Open <https://marketplace.visualstudio.com/manage/publishers/SemyonDanilov>,
+choose **New extension → Visual Studio Code**, and upload
+`merge-and-blame-0.3.0.vsix`.
 The web upload uses your Microsoft login and does not require a token in this
 repository. For automated publishing, configure Marketplace Trusted Publishing
 for GitHub Actions; no Marketplace publishing is enabled by the Pages workflow.
@@ -38,7 +38,7 @@ Official instructions:
 ## Existing local installations
 
 The old package ID was `vscode-diff.three-way-merger`. The renamed extension has
-a new ID, `<publisher>.merge-and-blame`, so it is a separate extension in VS Code.
+a new ID, `SemyonDanilov.merge-and-blame`, so it is a separate extension in VS Code.
 When switching, uninstall the old extension locally and in each SSH extension
 host, then install the renamed package and reload the windows. Keep one active
 copy because both packages contribute the same commands and custom-editor IDs.

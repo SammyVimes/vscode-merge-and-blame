@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
 import { loadMerge } from './git';
+import { OpeningTimings, type OpeningTrace } from './openingTimings';
 
 // VS Code does not expose a custom merge-editor provider. Its Git extension
 // opens the built-in editor through this workbench command. Command registrations
@@ -14,7 +15,7 @@ export class MergeEditorIntegration implements vscode.Disposable {
   private disposed = false;
   private passingThrough = 0;
 
-  constructor(private readonly viewType: string) {
+  constructor(private readonly timings: OpeningTimings, private readonly openEditor: (uri: vscode.Uri, trace: OpeningTrace) => Promise<void>) {
     this.configuration = vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration(setting)) this.update();
     });
@@ -38,16 +39,18 @@ export class MergeEditorIntegration implements vscode.Disposable {
   private async open(args: unknown[]): Promise<unknown> {
     const output = gitConflictOutput(args[0]);
     if (output && vscode.workspace.getConfiguration().get(setting, true)) {
+      const trace = this.timings.begin(output, 'Native Git merge command handoff');
       try {
         // Our custom document reads the index and disk. Never replace unsaved
         // text in a native editor or attempt a binary/non-Git/custom-input merge.
-        if (await hasDirtyText(output)) { notifyDirty(); return; }
-        await loadMerge(output.fsPath);
+        if (await trace.measure('Check unsaved text before preflight', () => hasDirtyText(output))) { trace.finish('Stopped: unsaved edits'); notifyDirty(); return; }
+        await trace.measure('Preflight: load Git inputs', () => loadMerge(output.fsPath, trace.scope('Preflight')));
         // Recheck after asynchronous Git reads in case the user typed meanwhile.
-        if (await hasDirtyText(output)) { notifyDirty(); return; }
-        await vscode.commands.executeCommand('vscode.openWith', output, this.viewType);
+        if (await trace.measure('Check unsaved text after preflight', () => hasDirtyText(output))) { trace.finish('Stopped: unsaved edits'); notifyDirty(); return; }
+        await this.openEditor(output, trace);
         return;
       } catch (error) {
+        trace.finish('Falling back to the built-in merge editor');
         console.warn('Merge & Blame is leaving this merge to VS Code:', error);
       }
     }

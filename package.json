@@ -2,7 +2,7 @@
   "name": "merge-and-blame",
   "displayName": "Merge & Blame",
   "description": "An IntelliJ-style three-way merge editor and Git blame for VS Code.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "SemyonDanilov",
   "license": "Apache-2.0",
   "repository": {
@@ -39,6 +39,14 @@
   },
   "contributes": {
     "commands": [
+      {
+        "command": "threeWayMerger.showOpeningTimings",
+        "title": "Merge & Blame: Show Opening Timings"
+      },
+      {
+        "command": "threeWayMerger.copyOpeningTimings",
+        "title": "Merge & Blame: Copy Opening Timings"
+      },
       {
         "command": "threeWayMerger.open",
         "title": "Merge & Blame: Open File"

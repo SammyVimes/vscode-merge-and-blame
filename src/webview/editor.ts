@@ -16,13 +16,17 @@ import 'monaco-editor/languages/definitions/xml/register.js';
 import 'monaco-editor/languages/definitions/ini/register.js';
 import 'monaco-editor/languages/definitions/sql/register.js';
 import './style.css';
+import { openingMark, reportOpening } from './openingTimings';
 
 export { monaco };
 declare global { interface Window { MonacoEnvironment: { getWorker: () => Promise<Worker> } } }
 export function installEditorEnvironment(container: HTMLElement): void {
   const workerUrl = new URL(container.dataset.worker!, document.baseURI).href;
   let source: Promise<string> | undefined;
+  let workers = 0;
   window.MonacoEnvironment = { getWorker: async () => {
+    const workerNumber = ++workers;
+    openingMark(`Worker ${workerNumber} requested`);
     // Webview workers cannot importScripts from extension-resource URLs. Load
     // the already bundled worker through the webview, then execute its blob.
     source ??= fetch(workerUrl).then(response => {
@@ -30,8 +34,11 @@ export function installEditorEnvironment(container: HTMLElement): void {
       return response.text();
     });
     const blob = new Blob([await source], { type: 'text/javascript' });
+    openingMark(`Worker ${workerNumber} source available`);
     const url = URL.createObjectURL(blob);
     const worker = new Worker(url);
+    openingMark(`Worker ${workerNumber} constructed`);
+    reportOpening('worker');
     setTimeout(() => URL.revokeObjectURL(url), 10000);
     return worker;
   } };

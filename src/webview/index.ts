@@ -6,6 +6,7 @@ import type { EditorState, ToHost, ToView } from '../protocol';
 import { demoSamples } from './demoSamples';
 import { BlameGutter } from './blameGutter';
 import { DemoHistory } from './demoHistory';
+import { observeOpeningResources, openingMark, reportOpeningFrame } from './openingTimings';
 
 declare function acquireVsCodeApi(): { postMessage(message: ToHost): void };
 declare global {
@@ -354,19 +355,30 @@ $('compare').addEventListener('change', () => {
   if (a && b) host.postMessage({ type: 'compare', a, b }); select.value = '';
 });
 function receive(message: ToView): void {
+  if (message.type === 'openingTimingRequest') { reportOpeningFrame(message.id); return; }
   if (message.type === 'blame' || message.type === 'blameError') { for (const gutter of blameGutters) gutter.receive(message); return; }
   if (message.type === 'error') { showError(message.message); resync = true; return; }
   if (message.type !== 'state' || (!resync && message.state.revision < revision)) return;
   const first = !session;
+  if (first) openingMark('Initial state received');
   const hadError = resync;
   state = message.state; revision = state.revision; resync = false;
+  if (first) openingMark('Browser merge model started');
   session = new MergeSession(state.input, state.snapshot);
+  if (first) openingMark('Browser merge model finished');
   if (!hadError) $('error').hidden = true;
-  if (first) init(); else render();
+  if (first) {
+    openingMark('Monaco editors creation started');
+    init();
+    openingMark('Monaco editors and decorations initialized');
+    reportOpeningFrame();
+  } else render();
 }
 if (typeof acquireVsCodeApi === 'function') {
-  host = acquireVsCodeApi();
+  host = window.__mergeOpening?.api ?? acquireVsCodeApi();
+  observeOpeningResources();
   window.addEventListener('message', event => receive(event.data as ToView));
+  openingMark('Application initialized; ready sent');
   host.postMessage({ type: 'ready' });
 } else {
   demo = true;

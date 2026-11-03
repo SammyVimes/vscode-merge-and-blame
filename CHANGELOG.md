@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- Add opening diagnostics for Git input reads, saved-state restoration, merge computation, webview startup, browser resources and the first rendered merge frame.
+- Add **Show Opening Timings** and **Copy Opening Timings**, retaining the latest 20 openings for comparison.
+- Record fresh openings, reopened documents and existing-view reveals with separate host and browser clocks.
+- Preserve the previous loading behavior and bundle size for performance diagnosis.
+
 ## 0.3.1
 
 - Open Merge & Blame from Git's existing **Resolve in Merge Editor** button.

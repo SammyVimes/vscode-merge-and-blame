@@ -12,7 +12,7 @@ await mkdir('dist', { recursive: true });
 await Promise.all(['blame.js', 'blame.js.map', 'blame.css', 'blame.css.map'].map(file => rm(`dist/${file}`, { force: true })));
 await Promise.all([
   build({ entryPoints: ['src/extension.ts'], outfile: 'dist/extension.cjs', bundle: true, platform: 'node', format: 'cjs', target: 'node20', external: ['vscode'], sourcemap: true }),
-  ...['webview', 'commit'].map(entry => build({ entryPoints: [entry === 'webview' ? 'src/webview/index.ts' : `src/webview/${entry}.ts`], outfile: `dist/${entry}.js`, bundle: true, platform: 'browser', format: 'iife', target: 'es2022', loader: { '.ttf': 'file', '.woff2': 'file' }, assetNames: 'assets/[name]-[hash]', sourcemap: true, plugins: [sanitizer] })),
+  ...['webview', 'commit'].map(entry => build({ entryPoints: [entry === 'webview' ? 'src/webview/index.ts' : `src/webview/${entry}.ts`], outfile: `dist/${entry}.js`, bundle: true, platform: 'browser', format: 'iife', target: 'es2022', loader: { '.ttf': 'file', '.woff2': 'file' }, assetNames: 'assets/[name]-[hash]', sourcemap: true, plugins: [sanitizer], banner: entry === 'webview' ? { js: 'globalThis.__mergeOpening?.marks.push({ label: "Bundle execution started", ms: performance.now() });' } : undefined })),
   build({ entryPoints: ['monaco-editor/editor/editor.worker.js'], outfile: 'dist/editor.worker.js', bundle: true, platform: 'browser', format: 'iife', target: 'es2022' }),
 ]);
 const notices = await Promise.all(['monaco-editor/LICENSE', 'diff/LICENSE', 'dompurify/LICENSE', 'marked/LICENSE.md'].map(async name => `${name}\n${await readFile(`node_modules/${name}`, 'utf8')}`));

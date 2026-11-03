@@ -34,5 +34,6 @@ try {
   const result = JSON.parse(await fs.readFile(report, 'utf8'));
   assert.equal(result.passed, true, JSON.stringify(result));
   assert.equal(code, 0, output.split('\n').slice(-25).join('\n'));
-  console.log('VS Code merge integration: normal files, non-Git fallback, redirect after fallback, dirty text, opt-out, and re-enable passed.');
+  await fs.copyFile(report + '.timings.txt', '.reference/merge-integration-timings.txt');
+  console.log('VS Code merge integration: opening timing reports (first open, existing view, reopen), normal files, non-Git fallback, dirty text, opt-out, and re-enable passed.');
 } finally { clearTimeout(timeout); child.kill('SIGKILL'); }

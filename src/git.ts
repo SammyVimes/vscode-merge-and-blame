@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { MergeInput } from './core/merge';
+import type { OperationTimer } from './openingTimings';
 
 const exec = promisify(execFile);
 export async function git(root: string, args: string[], input?: string | Buffer): Promise<Buffer> {
@@ -48,8 +49,9 @@ const text = (bytes: Buffer): string => {
 };
 async function exists(file: string): Promise<boolean> { try { await fs.access(file); return true; } catch { return false; } }
 
-export async function loadMerge(file: string): Promise<GitMerge> {
-  const root = await rootFor(file);
+export async function loadMerge(file: string, timing?: OperationTimer): Promise<GitMerge> {
+  const measure: OperationTimer['measure'] = timing ? timing.measure.bind(timing) : (_label, operation) => operation();
+  const root = await measure('Git root', () => rootFor(file));
   // macOS commonly aliases /var to /private/var. Git reports a physical root;
   // canonicalize the existing parent without following a file-level symlink.
   let parent = path.dirname(file);
@@ -63,7 +65,7 @@ export async function loadMerge(file: string): Promise<GitMerge> {
   }
   const relative = path.relative(root, path.join(parent, suffix)).split(path.sep).join('/');
   if (relative.startsWith('../')) throw new Error('File is outside the Git working tree.');
-  const index = await unmerged(root, relative);
+  const index = await measure('Git index stages', () => unmerged(root, relative));
   const stages = new Map<number, { oid: string; mode: string }>();
   for (const entry of index.split('\0').filter(Boolean)) {
     const match = /^(\d+) ([0-9a-f]+) ([123])\t/.exec(entry);
@@ -74,14 +76,14 @@ export async function loadMerge(file: string): Promise<GitMerge> {
   if (!stages.size) throw new Error('This file has no unresolved Git conflict. Use “Resolve Git Conflicts” to select a conflicted file.');
   const read = async (stage: number): Promise<string> => {
     const entry = stages.get(stage);
-    return entry ? text(await git(root, ['cat-file', 'blob', entry.oid])) : '';
+    return entry ? measure(`Git blob stage ${stage}`, async () => text(await git(root, ['cat-file', 'blob', entry.oid]))) : '';
   };
   const [base, left, right] = await Promise.all([read(1), read(2), read(3)]);
-  const gitPath = async (name: string): Promise<string> => (await git(root, ['rev-parse', '--git-path', name])).toString().trimEnd();
+  const gitPath = async (name: string): Promise<string> => measure(`Git operation path ${name}`, async () => (await git(root, ['rev-parse', '--git-path', name])).toString().trimEnd());
   const rebase = await exists(path.resolve(root, await gitPath('rebase-merge'))) || await exists(path.resolve(root, await gitPath('rebase-apply')));
   const cherry = await exists(path.resolve(root, await gitPath('CHERRY_PICK_HEAD')));
   let branch = 'HEAD';
-  try { branch = (await git(root, ['symbolic-ref', '--short', 'HEAD'])).toString().trim(); } catch { /* detached HEAD during rebase */ }
+  try { branch = await measure('Git branch label', async () => (await git(root, ['symbolic-ref', '--short', 'HEAD'])).toString().trim()); } catch { /* detached HEAD during rebase */ }
   const leftLabel = rebase ? 'Current · rebased-onto version (ours)' : `Local · ${branch} (ours)`;
   const rightLabel = rebase ? 'Incoming · commit being replayed (theirs)' : cherry ? 'Incoming · cherry-picked commit (theirs)' : 'Incoming · merging version (theirs)';
   let disk = '';
@@ -90,13 +92,13 @@ export async function loadMerge(file: string): Promise<GitMerge> {
   try {
     const stat = await fs.lstat(file);
     if (stat.isSymbolicLink()) throw new Error('Cannot merge through a symbolic link.');
-    const bytes = await fs.readFile(file);
+    const bytes = await measure('Read working file', () => fs.readFile(file));
     disk = text(bytes); mode = stat.mode & 0o777;
     bom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
   } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
   return {
     input: { base, left, right, name: path.basename(file), leftLabel, rightLabel, leftDeleted: !stages.has(2), rightDeleted: !stages.has(3) },
-    root, relative, fingerprint: hash(index), diskHash: await diskHash(file),
+    root, relative, fingerprint: hash(index), diskHash: await measure('Hash working file', () => diskHash(file)),
     eol: /\r\n/.test(disk || left || right || base) ? '\r\n' : '\n',
     mode, bom,
   };

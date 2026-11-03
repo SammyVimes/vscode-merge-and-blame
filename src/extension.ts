@@ -12,6 +12,7 @@ import { LegacyBlameProvider, blameViewType, prepareLegacyBlameDocuments } from 
 import { NativeBlame } from './nativeBlame';
 import { webviewHtml } from './webviewHtml';
 import { MergeEditorIntegration } from './mergeEditorIntegration';
+import { OpeningTimings, type OpeningTrace } from './openingTimings';
 
 const viewType = 'threeWayMerger.editor';
 interface Stored { meta: GitMerge; snapshot: Snapshot }
@@ -21,6 +22,7 @@ class MergeDocument implements vscode.CustomDocument {
   readonly onDidDispose = this.disposeEmitter.event;
   revision = 0;
   initializedBySetting = false;
+  opening?: OpeningTrace;
   constructor(readonly uri: vscode.Uri, readonly meta: GitMerge, snapshot?: Snapshot) {
     this.session = new MergeSession(meta.input, snapshot);
   }
@@ -33,7 +35,7 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
   private panels = new Map<MergeDocument, vscode.WebviewPanel>();
   private comparisons = new Map<string, string>();
   private compareChanged = new vscode.EventEmitter<vscode.Uri>();
-  constructor(private context: vscode.ExtensionContext, private inspector: CommitInspector) {
+  constructor(private context: vscode.ExtensionContext, private inspector: CommitInspector, private timings: OpeningTimings) {
     context.subscriptions.push(this.changes, this.compareChanged, vscode.workspace.registerTextDocumentContentProvider('three-way-compare', {
       onDidChange: this.compareChanged.event,
       provideTextDocumentContent: uri => this.comparisons.get(uri.toString()) ?? '',
@@ -46,11 +48,30 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
     return this.context.storageUri && vscode.Uri.joinPath(this.context.storageUri, `${hash(uri.toString())}.json`);
   }
   async openCustomDocument(uri: vscode.Uri, openContext: vscode.CustomDocumentOpenContext): Promise<MergeDocument> {
-    return this.loadDocument(uri, openContext.backupId);
+    const trace = this.timings.take(uri);
+    trace.mark('Custom document opening started');
+    try { return await trace.measure('Open custom document', () => this.loadDocument(uri, openContext.backupId, true, trace)); }
+    catch (error) { trace.finish('Custom document opening failed'); throw error; }
   }
-  private async loadDocument(uri: vscode.Uri, backupId?: string, initialize = true): Promise<MergeDocument> {
+  async open(uri: vscode.Uri, suppliedTrace?: OpeningTrace): Promise<void> {
+    const trace = suppliedTrace ?? this.timings.begin(uri, 'Merge & Blame command');
+    this.timings.prepare(uri, trace);
+    try {
+      await trace.measure('vscode.openWith returned', () => Promise.resolve(vscode.commands.executeCommand('vscode.openWith', uri, viewType)));
+      const entry = [...this.panels].find(([document]) => document.uri.toString() === uri.toString());
+      if (entry && entry[0].opening !== trace) {
+        trace.mark('Existing custom editor revealed');
+        void entry[1].webview.postMessage({ type: 'openingTimingRequest', id: trace.id } satisfies ToView);
+      }
+    } catch (error) { trace.finish('Open With failed'); throw error; }
+    finally { this.timings.release(uri, trace); }
+  }
+  private async loadDocument(uri: vscode.Uri, backupId?: string, initialize = true, trace?: OpeningTrace): Promise<MergeDocument> {
     if (uri.scheme !== 'file') throw new Error('Open a file in a local or remote Git working tree.');
-    const meta = await loadMerge(uri.fsPath);
+    const meta = trace
+      ? await trace.measure('Document: load Git inputs', () => loadMerge(uri.fsPath, trace.scope('Document')))
+      : await loadMerge(uri.fsPath);
+    trace?.mark(`Inputs: base ${meta.input.base.length}, local ${meta.input.left.length}, incoming ${meta.input.right.length} UTF-16 characters`);
     let saved: Stored | undefined;
     const canonical = this.cacheUri(meta);
     const storage = this.context.storageUri;
@@ -68,6 +89,7 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
         if (candidate.meta.fingerprint === meta.fingerprint && candidate.meta.diskHash === meta.diskHash) { saved = candidate; break; }
       } catch { /* first session or expired backup */ }
     }
+    trace?.mark(`Saved-session lookup finished (${saved ? 'matched' : 'no match'})`);
     let snapshot = saved?.meta.fingerprint === meta.fingerprint && saved.meta.diskHash === meta.diskHash ? saved.snapshot : undefined;
     // A conflict can already contain manual work from another editor. Import a
     // marker-free result as the baseline rather than replacing it with the base.
@@ -80,18 +102,22 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
         snapshot = imported.snapshot();
       }
     }
-    const document = new MergeDocument(uri, meta, snapshot);
+    trace?.mark('Existing working-result import finished');
+    const document = trace ? trace.sync('Compute host merge model', () => new MergeDocument(uri, meta, snapshot)) : new MergeDocument(uri, meta, snapshot);
+    document.opening = trace;
     if (initialize && !snapshot && vscode.workspace.getConfiguration('threeWayMerger').get('autoApplyNonConflicting', false)) {
       document.initializedBySetting = document.session.perform({ type: 'bulk' });
     }
     return document;
   }
   async resolveCustomEditor(document: MergeDocument, panel: vscode.WebviewPanel): Promise<void> {
+    document.opening?.mark('Webview resolution started');
     this.panels.set(document, panel);
     panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist')] };
     const blame = new BlameBridge(['left', 'result', 'right'], pane => mergeHistoryTarget(document.meta, pane as 'left' | 'result' | 'right'), this.inspector, message => this.post(document, message));
     let queue = Promise.resolve();
     const receive = panel.webview.onDidReceiveMessage((message: ToHost) => {
+      if (message?.type === 'openingTiming') { this.timings.receive(message.report); return; }
       if (blame.handle(message)) return;
       queue = queue.then(() => this.message(document, message)).catch(error => {
         this.post(document, { type: 'error', message: error instanceof Error ? error.message : String(error) });
@@ -99,7 +125,8 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
       });
     });
     panel.onDidDispose(() => { blame.dispose(); receive.dispose(); this.panels.delete(document); });
-    panel.webview.html = webviewHtml(this.context.extensionUri, panel.webview, 'webview');
+    panel.webview.html = webviewHtml(this.context.extensionUri, panel.webview, 'webview', document.opening?.id);
+    document.opening?.mark('Webview HTML assigned');
   }
   private post(document: MergeDocument, message: ToView): void { void this.panels.get(document)?.webview.postMessage(message); }
   private send(document: MergeDocument): void {
@@ -113,11 +140,15 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
   private async message(document: MergeDocument, message: ToHost): Promise<void> {
     if (!message || typeof message.type !== 'string') return;
     if (message.type === 'ready') {
+      document.opening?.mark('Webview ready message received');
       if (document.initializedBySetting) {
         document.initializedBySetting = false;
         this.record(document, 'Apply non-conflicting changes');
       }
-      this.send(document); return;
+      document.opening?.mark('Initial state sending started');
+      this.send(document);
+      document.opening?.mark('Initial state posted');
+      return;
     }
     if (message.type === 'command') {
       if (message.revision !== document.revision) throw new Error('The editor was updated elsewhere. Your view has been refreshed; retry the change.');
@@ -194,16 +225,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await prepareLegacyBlameDocuments();
   const inspector = new CommitInspector(context.extensionUri);
   const blame = new NativeBlame(inspector);
-  const provider = new MergeProvider(context, inspector);
+  const timings = new OpeningTimings(context.extension.packageJSON.version);
+  context.subscriptions.push(timings);
+  const provider = new MergeProvider(context, inspector, timings);
   context.subscriptions.push(inspector, blame,
     vscode.window.registerCustomEditorProvider(blameViewType, new LegacyBlameProvider(blame), { supportsMultipleEditorsPerDocument: false }));
   context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: false }));
-  context.subscriptions.push(new MergeEditorIntegration(viewType));
+  context.subscriptions.push(new MergeEditorIntegration(timings, (uri, trace) => provider.open(uri, trace)));
   const open = async (resource?: vscode.Uri | { resourceUri: vscode.Uri }): Promise<void> => {
     try {
       const uri = resource instanceof vscode.Uri ? resource : resource?.resourceUri ?? vscode.window.activeTextEditor?.document.uri;
       if (!uri) { await chooseConflict(); return; }
-      await vscode.commands.executeCommand('vscode.openWith', uri, viewType);
+      await provider.open(uri);
     } catch (error) { void vscode.window.showErrorMessage(String(error)); }
   };
   const chooseConflict = async (): Promise<void> => {

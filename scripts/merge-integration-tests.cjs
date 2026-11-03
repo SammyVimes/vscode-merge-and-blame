@@ -10,7 +10,7 @@ exports.run = async function () {
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const until = async (fn, label) => {
     const deadline = Date.now() + 10000;
-    while (Date.now() < deadline) { if (fn()) return; await pause(25); }
+    while (Date.now() < deadline) { if (await fn()) return; await pause(25); }
     throw new Error(`Timed out: ${label}`);
   };
   const tabs = () => vscode.window.tabGroups.all.flatMap(group => group.tabs);
@@ -37,6 +37,17 @@ exports.run = async function () {
 
     await vscode.commands.executeCommand('git.openMergeEditor', conflict);
     await until(ours, 'Git redirect following native fallback');
+    await until(async () => (await vscode.commands.executeCommand('_threeWayMerger.getOpeningTimings')).includes('First merge frame (two animation frames)'), 'browser timing report');
+    const timings = await vscode.commands.executeCommand('_threeWayMerger.getOpeningTimings');
+    assert.match(timings, /Preflight: load Git inputs/);
+    assert.match(timings, /Document: load Git inputs/);
+    assert.match(timings, /HTML bootstrap/);
+    assert.match(timings, /Bundle execution started/);
+    assert.match(timings, /webview.js:/);
+    assert.match(timings, /different clock/);
+    await fs.writeFile(process.env.MERGER_INTEGRATION_REPORT + '.timings.txt', timings);
+    await vscode.commands.executeCommand('git.openMergeEditor', conflict);
+    await until(async () => (await vscode.commands.executeCommand('_threeWayMerger.getOpeningTimings')).includes('Existing view frame'), 'existing-view timing report');
     await close();
 
     const document = await vscode.workspace.openTextDocument(conflict);
@@ -54,6 +65,7 @@ exports.run = async function () {
     await config.update('useAsDefaultMergeEditor', true, vscode.ConfigurationTarget.Global);
     await vscode.commands.executeCommand('git.openMergeEditor', conflict);
     await until(ours, 'redirect re-enabled without reload');
+    await until(async () => (await vscode.commands.executeCommand('_threeWayMerger.getOpeningTimings')).match(/First merge frame \(two animation frames\)/g)?.length >= 2, 'second opening timing report');
     await close();
     await fs.writeFile(process.env.MERGER_INTEGRATION_REPORT, JSON.stringify({ passed: true }));
   } catch (error) {

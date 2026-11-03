@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4
+
+- Fetch the merge UI as a gzip bundle and inflate it in the webview; retain the raw script as a compatibility fallback.
+- Include compressed initial merge state in the HTML, removing the ready/state round trip before first rendering.
+- Request fresh host state when reloading a previously initialized webview, preserving unsaved edits and resolution history.
+- Record compressed asset loading and state initialization in opening diagnostics.
+
 ## 0.3.3
 
 - Minify the merge UI, commit viewer and editor worker in production builds.

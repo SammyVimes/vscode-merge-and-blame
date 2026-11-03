@@ -112,8 +112,24 @@ try {
   await until(async () => (await frame.locator('#status').innerText()).includes('1 unresolved'), 'VS Code custom document undo');
   await frame.locator('#redo').click();
   await until(async () => (await frame.locator('#status').innerText()).includes('0 unresolved'), 'VS Code custom document redo');
-  await frame.locator('#save').click();
   const expected = `HEADING\n${auto ? '' : '// manual '}unchanged\ncolor(blue, new);\nseparator\nambiguous = local;\nseparator2\nflag=true;\n`;
+  // Reloading the webview reuses its HTML, whose embedded initial state is now
+  // stale. It must request the current unsaved text AND resolution state.
+  await frame.evaluate(() => { window.__reloadSentinel = true; });
+  const quickAccess = page.getByRole('button', { name: 'Open Quick Access', exact: true });
+  await quickAccess.click();
+  const reloadInput = page.locator('.quick-input-widget input');
+  await reloadInput.fill('>Developer: Reload Webviews');
+  await page.locator('.quick-input-widget .monaco-list-row').filter({ hasText: 'Reload Webviews' }).first().waitFor({ state: 'visible' });
+  await reloadInput.press('Enter');
+  frame = await until(async () => {
+    for (const candidate of page.frames()) if (await candidate.locator('#apply-all').isVisible().catch(() => false)
+      && await candidate.evaluate(() => !window.__reloadSentinel).catch(() => false)) return candidate;
+  }, 'reloaded merge webview');
+  await until(async () => (await frame.locator('#status').innerText()).includes('0 unresolved'), 'unsaved resolutions after webview reload');
+  assert.ok((await frame.locator('#result-editor').innerText()).replace(/\u00a0/g, ' ').includes(auto ? 'unchanged' : '// manual unchanged'), 'unsaved text survives stale HTML reload');
+  assert.ok(await frame.evaluate(() => window.__mergeOpening.marks.some(mark => mark.label === 'Webview reload: requesting current host state')), 'stale embedded state is skipped on reload');
+  await frame.locator('#save').click();
   await until(async () => (await fs.readFile(file, 'utf8')) === expected, 'saving result');
   assert.ok(run('ls-files', '--unmerged').length, 'save must not stage unresolved Git index');
   await frame.locator('#compare').selectOption('left,base');

@@ -17,7 +17,7 @@ telemetry, Java runtime, or JetBrains installation is required to use it.
 ## Install and use
 
 1. Install [Merge & Blame from the Marketplace](https://marketplace.visualstudio.com/items?itemName=SemyonDanilov.merge-and-blame),
-   or install the generated `merge-and-blame-0.3.3.vsix` using **Extensions:
+   or install the generated `merge-and-blame-0.3.4.vsix` using **Extensions:
    Install from VSIX…** in VS Code's Command Palette.
 2. Open a conflicted file and click VS Code's existing **Resolve in Merge
    Editor** button. It opens Merge & Blame automatically. You can also run
@@ -55,7 +55,11 @@ work before it hands over to our redirect is outside the report. Resource byte
 counts can be zero/redacted for webview URLs; that alone does not establish a
 cache hit. Version 0.3.3 minifies production assets, reads saved sessions directly
 on the workspace host, and reuses preflight Git inputs after checking that the
-index and working file still match. Diagnostics are not sent to any service.
+index and working file still match. Version 0.3.4 fetches a gzip bundle and
+inflates it locally, and supplies the compressed initial merge state with the
+HTML to avoid a ready/state round trip. The `.gz` resource sizes in reports refer
+to the compressed file. Webview reloads request current state rather than
+reusing an outdated HTML snapshot. Diagnostics are not sent to any service.
 
 ## Git blame
 

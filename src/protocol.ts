@@ -13,7 +13,7 @@ export interface EditorState {
 export type ToHost =
   | HistoryRequest
   | { type: 'openingTiming'; report: OpeningBrowserReport }
-  | { type: 'ready' }
+  | { type: 'ready'; initialRevision?: number }
   | { type: 'command'; command: Command; revision: number }
   | { type: 'undo' | 'redo' | 'save' | 'complete' }
   | { type: 'compare'; a: 'base' | 'left' | 'right' | 'result'; b: 'base' | 'left' | 'right' | 'result' };

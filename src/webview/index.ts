@@ -6,7 +6,7 @@ import type { EditorState, ToHost, ToView } from '../protocol';
 import { demoSamples } from './demoSamples';
 import { BlameGutter } from './blameGutter';
 import { DemoHistory } from './demoHistory';
-import { observeOpeningResources, openingMark, reportOpeningFrame } from './openingTimings';
+import { observeOpeningResources, openingMark, reportOpeningFrame, takeInitialState } from './openingTimings';
 
 declare function acquireVsCodeApi(): { postMessage(message: ToHost): void };
 declare global {
@@ -378,8 +378,10 @@ if (typeof acquireVsCodeApi === 'function') {
   host = window.__mergeOpening?.api ?? acquireVsCodeApi();
   observeOpeningResources();
   window.addEventListener('message', event => receive(event.data as ToView));
+  const initial = takeInitialState();
   openingMark('Application initialized; ready sent');
-  host.postMessage({ type: 'ready' });
+  host.postMessage({ type: 'ready', initialRevision: initial?.revision });
+  if (initial) receive({ type: 'state', state: initial });
 } else {
   demo = true;
   app.insertAdjacentHTML('afterbegin', '<div class="preview-bar" aria-label="Browser preview samples"><strong>Merge &amp; Blame</strong><label for="sample-select">Preview</label><select id="sample-select" aria-label="Preview sample"></select><button id="reset-sample">Reset sample</button><span id="sample-description"></span><a class="preview-source" href="https://github.com/SammyVimes/vscode-merge-and-blame" target="_blank" rel="noopener noreferrer">GitHub</a></div>');

@@ -45,7 +45,10 @@ exports.run = async function () {
     assert.match(timings, /Saved-session reads \(\d+ unique paths; direct host filesystem\)/);
     assert.match(timings, /HTML bootstrap/);
     assert.match(timings, /Bundle execution started/);
-    assert.match(timings, /webview.js:/);
+    assert.match(timings, /webview.js.gz:/);
+    assert.match(timings, /Initial HTML state acknowledged; ready round trip skipped/);
+    assert.match(timings, /Using initial state supplied in HTML/);
+    assert.doesNotMatch(timings, /Initial state sending started/);
     assert.match(timings, /different clock/);
     await fs.writeFile(process.env.MERGER_INTEGRATION_REPORT + '.timings.txt', timings);
     await vscode.commands.executeCommand('git.openMergeEditor', conflict);

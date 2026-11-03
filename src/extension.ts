@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import { MergeSession, type Command, type Snapshot } from './core/merge';
 import { edits, normalize } from './core/diff';
 import { completeMerge, conflictFiles, hash, loadMerge, reuseMerge, rootFor, saveResult, type GitMerge } from './git';
-import type { ToHost, ToView } from './protocol';
+import type { EditorState, ToHost, ToView } from './protocol';
 import { BlameBridge } from './blameBridge';
 import { mergeHistoryTarget } from './history';
 import { CommitInspector } from './commitInspector';
@@ -13,6 +13,7 @@ import { NativeBlame } from './nativeBlame';
 import { webviewHtml } from './webviewHtml';
 import { MergeEditorIntegration } from './mergeEditorIntegration';
 import { OpeningTimings, type OpeningTrace } from './openingTimings';
+import { packInitialState } from './initialState';
 
 const viewType = 'threeWayMerger.editor';
 interface Stored { meta: GitMerge; snapshot: Snapshot }
@@ -129,6 +130,7 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
     this.panels.set(document, panel);
     panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist')] };
     const blame = new BlameBridge(['left', 'result', 'right'], pane => mergeHistoryTarget(document.meta, pane as 'left' | 'result' | 'right'), this.inspector, message => this.post(document, message));
+    let disposed = false;
     let queue = Promise.resolve();
     const receive = panel.webview.onDidReceiveMessage((message: ToHost) => {
       if (message?.type === 'openingTiming') { this.timings.receive(message.report); return; }
@@ -138,18 +140,25 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
         this.send(document);
       });
     });
-    panel.onDidDispose(() => { blame.dispose(); receive.dispose(); this.panels.delete(document); });
-    panel.webview.html = webviewHtml(this.context.extensionUri, panel.webview, 'webview', document.opening?.id);
+    panel.onDidDispose(() => { disposed = true; blame.dispose(); receive.dispose(); this.panels.delete(document); });
+    const pack = () => packInitialState(this.state(document));
+    const initial = document.opening ? await document.opening.measure('Pack initial state for HTML', pack) : await pack();
+    if (disposed) { document.opening?.finish('Editor closed before initialization'); return; }
+    document.opening?.mark(`Initial state in HTML: ${initial.bytes} gzip bytes (${initial.expandedBytes} JSON bytes)`);
+    panel.webview.html = webviewHtml(this.context.extensionUri, panel.webview, 'webview', document.opening?.id, initial);
     document.opening?.mark('Webview HTML assigned');
   }
   private post(document: MergeDocument, message: ToView): void { void this.panels.get(document)?.webview.postMessage(message); }
-  private send(document: MergeDocument): void {
-    this.post(document, { type: 'state', state: {
+  private state(document: MergeDocument): EditorState {
+    return {
       input: document.session.input, snapshot: document.session.snapshot(),
       canUndo: document.session.canUndo, canRedo: document.session.canRedo,
       revision: document.revision,
       fontSize: vscode.workspace.getConfiguration('threeWayMerger').get('fontSize', 13),
-    } });
+    };
+  }
+  private send(document: MergeDocument): void {
+    this.post(document, { type: 'state', state: this.state(document) });
   }
   private async message(document: MergeDocument, message: ToHost): Promise<void> {
     if (!message || typeof message.type !== 'string') return;
@@ -158,6 +167,10 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
       if (document.initializedBySetting) {
         document.initializedBySetting = false;
         this.record(document, 'Apply non-conflicting changes');
+      }
+      if (message.initialRevision === document.revision) {
+        document.opening?.mark('Initial HTML state acknowledged; ready round trip skipped');
+        return;
       }
       document.opening?.mark('Initial state sending started');
       this.send(document);

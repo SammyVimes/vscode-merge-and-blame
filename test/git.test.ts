@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { completeMerge, conflictFiles, git, loadMerge, saveResult, unmerged } from '../src/git';
+import { completeMerge, conflictFiles, git, loadMerge, reuseMerge, saveResult, unmerged } from '../src/git';
 import { MergeSession } from '../src/core/merge';
 
 async function repository(): Promise<{ root: string; file: string; clean: () => Promise<void> }> {
@@ -56,6 +56,23 @@ test('refuses to overwrite external file edits and changed index stages', async 
   assert.equal(await fs.readFile(repo.file, 'utf8'), 'external change');
   await git(repo.root, ['add', '--', path.basename(repo.file)]);
   await assert.rejects(saveResult(repo.file, meta, 'replacement'), /Git conflict changed/);
+});
+
+test('opening handoff reuses inputs and reloads changed disk or index state', async t => {
+  const repo = await repository(); t.after(repo.clean);
+  await assert.rejects(git(repo.root, ['merge', 'incoming']));
+  const prepared = await loadMerge(repo.file);
+  assert.equal(await reuseMerge(repo.file, prepared), prepared, 'unchanged preflight data should be reused');
+  await fs.writeFile(repo.file, 'external manual resolution\n');
+  const changed = await reuseMerge(repo.file, prepared);
+  assert.notEqual(changed, prepared);
+  assert.notEqual(changed.diskHash, prepared.diskHash);
+  assert.deepEqual(changed.input, prepared.input);
+  await fs.chmod(repo.file, 0o600);
+  const permissions = await reuseMerge(repo.file, changed);
+  assert.equal(permissions.mode, 0o600, 'permission changes during the handoff must be retained');
+  await git(repo.root, ['add', '--', path.basename(repo.file)]);
+  await assert.rejects(reuseMerge(repo.file, permissions), /no unresolved Git conflict/);
 });
 
 test('labels rebase stage 2 as rebased-onto and stage 3 as replayed commit', async t => {

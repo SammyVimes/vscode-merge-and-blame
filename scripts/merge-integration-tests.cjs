@@ -40,7 +40,9 @@ exports.run = async function () {
     await until(async () => (await vscode.commands.executeCommand('_threeWayMerger.getOpeningTimings')).includes('First merge frame (two animation frames)'), 'browser timing report');
     const timings = await vscode.commands.executeCommand('_threeWayMerger.getOpeningTimings');
     assert.match(timings, /Preflight: load Git inputs/);
-    assert.match(timings, /Document: load Git inputs/);
+    assert.match(timings, /Document: reused preflight inputs/);
+    assert.doesNotMatch(timings, /Document: Git blob stage/);
+    assert.match(timings, /Saved-session reads \(\d+ unique paths; direct host filesystem\)/);
     assert.match(timings, /HTML bootstrap/);
     assert.match(timings, /Bundle execution started/);
     assert.match(timings, /webview.js:/);

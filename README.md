@@ -17,7 +17,7 @@ telemetry, Java runtime, or JetBrains installation is required to use it.
 ## Install and use
 
 1. Install [Merge & Blame from the Marketplace](https://marketplace.visualstudio.com/items?itemName=SemyonDanilov.merge-and-blame),
-   or install the generated `merge-and-blame-0.3.2.vsix` using **Extensions:
+   or install the generated `merge-and-blame-0.3.3.vsix` using **Extensions:
    Install from VSIX…** in VS Code's Command Palette.
 2. Open a conflicted file and click VS Code's existing **Resolve in Merge
    Editor** button. It opens Merge & Blame automatically. You can also run
@@ -43,7 +43,7 @@ redirects supported Git index conflicts; other merge requests use the original
 handler. If a future VS Code version changes this internal command, the explicit
 Merge & Blame commands remain available.
 
-The 0.3.2 diagnostic build records the latest 20 merge openings. After reproducing
+The diagnostic build records the latest 20 merge openings. After reproducing
 a slow opening, run **Merge & Blame: Copy Opening Timings** and share the copied
 report. **Merge & Blame: Show Opening Timings** opens its Output channel, including
 progress while an editor is still loading. Reports include the Git reads, merge
@@ -53,8 +53,9 @@ resource timings. File contents are excluded.
 Host and browser timelines use separate monotonic clocks. The native Git command's
 work before it hands over to our redirect is outside the report. Resource byte
 counts can be zero/redacted for webview URLs; that alone does not establish a
-cache hit. This build retains the existing bundle size and loading behavior for
-comparison, and does not send diagnostics to any service.
+cache hit. Version 0.3.3 minifies production assets, reads saved sessions directly
+on the workspace host, and reuses preflight Git inputs after checking that the
+index and working file still match. Diagnostics are not sent to any service.
 
 ## Git blame
 
@@ -124,6 +125,9 @@ npm run build
 npm run test:ui
 npm run package
 ```
+
+Builds are minified by default. Use `npm run build -- --development` for an
+unminified build with source maps.
 
 Press **F5** in this repository to launch an Extension Development Host. Open a
 repository with actual Git conflicts in that window. `npm run preview` also

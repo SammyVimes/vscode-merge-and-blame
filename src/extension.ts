@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { MergeSession, type Command, type Snapshot } from './core/merge';
 import { edits, normalize } from './core/diff';
-import { completeMerge, conflictFiles, hash, loadMerge, rootFor, saveResult, type GitMerge } from './git';
+import { completeMerge, conflictFiles, hash, loadMerge, reuseMerge, rootFor, saveResult, type GitMerge } from './git';
 import type { ToHost, ToView } from './protocol';
 import { BlameBridge } from './blameBridge';
 import { mergeHistoryTarget } from './history';
@@ -33,6 +33,7 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
   private changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<MergeDocument>>();
   readonly onDidChangeCustomDocument = this.changes.event;
   private panels = new Map<MergeDocument, vscode.WebviewPanel>();
+  private prepared = new Map<string, { trace: OpeningTrace; meta: GitMerge }>();
   private comparisons = new Map<string, string>();
   private compareChanged = new vscode.EventEmitter<vscode.Uri>();
   constructor(private context: vscode.ExtensionContext, private inspector: CommitInspector, private timings: OpeningTimings) {
@@ -49,13 +50,16 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
   }
   async openCustomDocument(uri: vscode.Uri, openContext: vscode.CustomDocumentOpenContext): Promise<MergeDocument> {
     const trace = this.timings.take(uri);
+    const prepared = this.prepared.get(uri.toString());
+    if (prepared?.trace === trace) this.prepared.delete(uri.toString());
     trace.mark('Custom document opening started');
-    try { return await trace.measure('Open custom document', () => this.loadDocument(uri, openContext.backupId, true, trace)); }
+    try { return await trace.measure('Open custom document', () => this.loadDocument(uri, openContext.backupId, true, trace, prepared?.trace === trace ? prepared.meta : undefined)); }
     catch (error) { trace.finish('Custom document opening failed'); throw error; }
   }
-  async open(uri: vscode.Uri, suppliedTrace?: OpeningTrace): Promise<void> {
+  async open(uri: vscode.Uri, suppliedTrace?: OpeningTrace, prepared?: GitMerge): Promise<void> {
     const trace = suppliedTrace ?? this.timings.begin(uri, 'Merge & Blame command');
     this.timings.prepare(uri, trace);
+    if (prepared) this.prepared.set(uri.toString(), { trace, meta: prepared });
     try {
       await trace.measure('vscode.openWith returned', () => Promise.resolve(vscode.commands.executeCommand('vscode.openWith', uri, viewType)));
       const entry = [...this.panels].find(([document]) => document.uri.toString() === uri.toString());
@@ -64,31 +68,41 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
         void entry[1].webview.postMessage({ type: 'openingTimingRequest', id: trace.id } satisfies ToView);
       }
     } catch (error) { trace.finish('Open With failed'); throw error; }
-    finally { this.timings.release(uri, trace); }
+    finally {
+      if (this.prepared.get(uri.toString())?.trace === trace) this.prepared.delete(uri.toString());
+      this.timings.release(uri, trace);
+    }
   }
-  private async loadDocument(uri: vscode.Uri, backupId?: string, initialize = true, trace?: OpeningTrace): Promise<MergeDocument> {
+  private async loadDocument(uri: vscode.Uri, backupId?: string, initialize = true, trace?: OpeningTrace, prepared?: GitMerge): Promise<MergeDocument> {
     if (uri.scheme !== 'file') throw new Error('Open a file in a local or remote Git working tree.');
-    const meta = trace
+    const meta = prepared
+      ? await (trace ? trace.measure('Document: verify preflight inputs', () => reuseMerge(uri.fsPath, prepared, trace.scope('Document'))) : reuseMerge(uri.fsPath, prepared))
+      : trace
       ? await trace.measure('Document: load Git inputs', () => loadMerge(uri.fsPath, trace.scope('Document')))
       : await loadMerge(uri.fsPath);
+    if (prepared) trace?.mark(meta === prepared ? 'Document: reused preflight inputs' : 'Document: preflight changed; inputs reloaded');
     trace?.mark(`Inputs: base ${meta.input.base.length}, local ${meta.input.left.length}, incoming ${meta.input.right.length} UTF-16 characters`);
-    let saved: Stored | undefined;
-    const canonical = this.cacheUri(meta);
     const storage = this.context.storageUri;
-    const keys = [vscode.Uri.file(path.join(meta.root, meta.relative)), uri].map(value => `${hash(value.toString())}.json`);
+    const keys = [...new Set([vscode.Uri.file(path.join(meta.root, meta.relative)), uri].map(value => `${hash(value.toString())}.json`))];
     const caches = backupId ? [vscode.Uri.parse(backupId)] : [
-      canonical,
       ...(storage ? keys.map(key => vscode.Uri.joinPath(storage, key)) : []),
       // The Marketplace rename changed the extension's storage directory.
       ...(storage ? keys.map(key => vscode.Uri.joinPath(storage, '..', 'vscode-diff.three-way-merger', key)) : []),
     ];
-    for (const cache of caches) {
-      if (!cache) continue;
-      try {
-        const candidate: Stored = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(cache)).toString());
-        if (candidate.meta.fingerprint === meta.fingerprint && candidate.meta.diskHash === meta.diskHash) { saved = candidate; break; }
-      } catch { /* first session or expired backup */ }
-    }
+    const readSaved = async (): Promise<Stored | undefined> => {
+      for (const cache of caches) {
+        try {
+          // In a workspace extension, file: storage is on this host. Using the
+          // VS Code filesystem API here sends each miss through the UI bridge.
+          const bytes = cache.scheme === 'file' ? await fs.readFile(cache.fsPath) : await vscode.workspace.fs.readFile(cache);
+          const candidate: Stored = JSON.parse(Buffer.from(bytes).toString());
+          if (candidate.meta.fingerprint === meta.fingerprint && candidate.meta.diskHash === meta.diskHash) return candidate;
+        } catch { /* first session or expired backup */ }
+      }
+      return undefined;
+    };
+    const cacheLabel = `Saved-session reads (${caches.length} unique paths; ${caches.every(cache => cache.scheme === 'file') ? 'direct host filesystem' : 'VS Code filesystem fallback'})`;
+    const saved = trace ? await trace.measure(cacheLabel, readSaved) : await readSaved();
     trace?.mark(`Saved-session lookup finished (${saved ? 'matched' : 'no match'})`);
     let snapshot = saved?.meta.fingerprint === meta.fingerprint && saved.meta.diskHash === meta.diskHash ? saved.snapshot : undefined;
     // A conflict can already contain manual work from another editor. Import a
@@ -231,7 +245,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(inspector, blame,
     vscode.window.registerCustomEditorProvider(blameViewType, new LegacyBlameProvider(blame), { supportsMultipleEditorsPerDocument: false }));
   context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: false }));
-  context.subscriptions.push(new MergeEditorIntegration(timings, (uri, trace) => provider.open(uri, trace)));
+  context.subscriptions.push(new MergeEditorIntegration(timings, (uri, trace, prepared) => provider.open(uri, trace, prepared)));
   const open = async (resource?: vscode.Uri | { resourceUri: vscode.Uri }): Promise<void> => {
     try {
       const uri = resource instanceof vscode.Uri ? resource : resource?.resourceUri ?? vscode.window.activeTextEditor?.document.uri;

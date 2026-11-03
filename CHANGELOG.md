@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+
+- Minify the merge UI, commit viewer and editor worker in production builds.
+- Read saved sessions on the workspace host and remove duplicate cache lookups, avoiding repeated remote filesystem round trips on every opening.
+- Reuse preflight merge inputs after checking the current index, file contents and permissions; reload if they changed during the handoff.
+- Retain opening timings for comparison with 0.3.2.
+
 ## 0.3.2
 
 - Add opening diagnostics for Git input reads, saved-state restoration, merge computation, webview startup, browser resources and the first rendered merge frame.

@@ -110,6 +110,19 @@ export async function verifyIndex(meta: GitMerge): Promise<void> {
   }
 }
 
+/** Reuse a single opening's inputs while checking for edits during the UI handoff. */
+export async function reuseMerge(file: string, prepared: GitMerge, timing?: OperationTimer): Promise<GitMerge> {
+  const measure: OperationTimer['measure'] = timing ? timing.measure.bind(timing) : (_label, operation) => operation();
+  const [index, disk, stat] = await Promise.all([
+    measure('Verify prepared Git index', () => unmerged(prepared.root, prepared.relative)),
+    measure('Verify prepared working file', () => diskHash(file)),
+    fs.lstat(file).catch(error => { if (error.code === 'ENOENT') return undefined; throw error; }),
+  ]);
+  if (hash(index) === prepared.fingerprint && disk === prepared.diskHash
+    && (!stat || stat.isFile() && (stat.mode & 0o777) === prepared.mode)) return prepared;
+  return loadMerge(file, timing);
+}
+
 export async function saveResult(file: string, meta: GitMerge, result: string, deletion = false): Promise<void> {
   await verifyIndex(meta);
   if (await diskHash(file) !== meta.diskHash) throw new Error('The file changed outside this editor. Reopen it to review those changes before saving.');

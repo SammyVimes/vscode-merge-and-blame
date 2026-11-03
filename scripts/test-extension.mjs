@@ -29,7 +29,7 @@ const auto = process.env.MERGER_TEST_AUTO === '1';
 await fs.mkdir(path.join(temp, 'profile', 'User'), { recursive: true });
 await fs.writeFile(path.join(temp, 'profile', 'User', 'settings.json'), JSON.stringify({ 'telemetry.telemetryLevel': 'off', 'workbench.startupEditor': 'none', 'workbench.secondarySideBar.defaultVisibility': 'hidden', 'threeWayMerger.autoApplyNonConflicting': auto }));
 const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
-const child = spawn(executable, [repo, `--extensionDevelopmentPath=${process.cwd()}`, '--user-data-dir', path.join(temp, 'profile'), '--extensions-dir', path.join(temp, 'extensions'), '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', `--remote-debugging-port=${port}`], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+const child = spawn(executable, [repo, `--extensionDevelopmentPath=${process.cwd()}`, '--user-data-dir', path.join(temp, 'profile'), '--extensions-dir', path.join(temp, 'extensions'), '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', `--remote-debugging-port=${port}`, ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : [])], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let output = ''; child.stdout.on('data', d => output += d); child.stderr.on('data', d => output += d);
 child.on('error', error => { output += error.message; });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -70,9 +70,19 @@ try {
     await fileOption.first().waitFor({ state: 'visible' });
     await fileOption.first().click();
   };
-  await openMerge();
+  // Start in the ordinary text editor and use Git's actual built-in button.
+  // The extension must activate on startup, without opening one of our commands.
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+p' : 'Control+p');
+  const fileInput = page.locator('.quick-input-widget input');
+  await fileInput.waitFor({ state: 'visible' });
+  await fileInput.fill(file);
+  await page.locator('.quick-input-widget .monaco-list-row').filter({ hasText: 'merge.ts' }).first().waitFor({ state: 'visible' });
+  await fileInput.press('Enter');
+  const nativeMergeButton = page.getByRole('button', { name: 'Resolve in Merge Editor', exact: true });
+  await nativeMergeButton.waitFor({ state: 'visible' });
+  await nativeMergeButton.click();
   const getFrame = async () => await until(async () => {
-    for (const f of page.frames()) if (await f.locator('#apply-all').count()) return f;
+    for (const f of page.frames()) if (await f.locator('#apply-all').isVisible().catch(() => false)) return f;
     return undefined;
   }, 'merge webview');
   let frame = await getFrame();
@@ -108,9 +118,30 @@ try {
   assert.ok(run('ls-files', '--unmerged').length, 'save must not stage unresolved Git index');
   await frame.locator('#compare').selectOption('left,base');
   await page.waitForSelector('.monaco-diff-editor', { timeout: 10000 });
-  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+w' : 'Control+w');
+  const closeActiveTab = async () => {
+    const tab = page.locator('.tabs-container .tab.active');
+    await tab.hover();
+    await tab.locator('.tab-actions .action-label').first().click();
+  };
+  await closeActiveTab();
+  await page.locator('.monaco-diff-editor').waitFor({ state: 'hidden' });
   // Close the saved merge, then reopen it from Git's still-unmerged index.
-  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+w' : 'Control+w');
+  await closeActiveTab();
+  await until(() => frame.isDetached(), 'saved merge webview closed');
+  // A pre-Marketplace installation stores this session under the old extension
+  // ID. Reopening through our picker also switches /var to /private/var on macOS.
+  const workspaceStorage = path.join(temp, 'profile', 'User', 'workspaceStorage');
+  let migratedCache = false;
+  for (const entry of await fs.readdir(workspaceStorage, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const storage = path.join(workspaceStorage, entry.name);
+    const current = path.join(storage, 'SemyonDanilov.merge-and-blame');
+    if (await fs.stat(current).then(() => true, () => false)) {
+      await fs.rename(current, path.join(storage, 'vscode-diff.three-way-merger'));
+      migratedCache = true;
+    }
+  }
+  assert.ok(migratedCache, 'saved session should exist before testing legacy storage migration');
   await openMerge(); frame = await getFrame();
   await until(async () => (await frame.locator('#status').innerText()).includes('0 unresolved'), 'persisted result and resolution state');
   await page.screenshot({ path: '.reference/extension-host.png' });
@@ -119,10 +150,11 @@ try {
   assert.equal(run('show', ':merge.ts'), expected);
   assert.equal(await fs.readFile(file, 'utf8'), expected);
   assert.equal(errors.filter(e => /worker|Content Security Policy|importScripts/i.test(e)).length, 0, errors.join('\n'));
-  console.log(`VS Code extension host (auto-apply=${auto}): Git conflict, bulk, wand, arrows, ignore, native undo/redo, save, comparisons, reopen, and staging passed.`);
+  console.log(`VS Code extension host (auto-apply=${auto}): native Resolve in Merge Editor button, Git conflict, bulk, wand, arrows, ignore, native undo/redo, save, comparisons, reopen, and staging passed.`);
 } catch (error) {
   for (const page of browser?.contexts().flatMap(context => context.pages()) ?? []) {
     await page.screenshot({ path: '.reference/extension-failed.png' }).catch(() => undefined);
+    await fs.writeFile('.reference/extension-failed.html', await page.content()).catch(() => undefined);
   }
   await fs.writeFile('.reference/extension-test.log', output);
   console.error(`Test workspace: ${repo}`);

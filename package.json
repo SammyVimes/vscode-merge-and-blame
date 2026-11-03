@@ -2,7 +2,7 @@
   "name": "merge-and-blame",
   "displayName": "Merge & Blame",
   "description": "An IntelliJ-style three-way merge editor and Git blame for VS Code.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "SemyonDanilov",
   "license": "Apache-2.0",
   "repository": {
@@ -27,6 +27,7 @@
     "workspace"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onCustomEditor:threeWayMerger.editor",
     "onCustomEditor:threeWayMerger.blame"
   ],
@@ -129,6 +130,12 @@
     "configuration": {
       "title": "Merge & Blame",
       "properties": {
+        "threeWayMerger.useAsDefaultMergeEditor": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "description": "Open Merge & Blame when Git's Resolve in Merge Editor button is clicked. Uses VS Code's internal merge command; unsupported merges use the built-in editor. Files with unsaved edits must be saved first. Disable to restore the built-in merge editor."
+        },
         "threeWayMerger.autoApplyNonConflicting": {
           "type": "boolean",
           "default": false,
@@ -151,6 +158,7 @@
     "test:ui": "npm run build:preview && playwright test",
     "test:reference": "tsx scripts/check-reference.ts",
     "test:host": "node scripts/test-extension.mjs",
+    "test:merge-integration": "node scripts/test-merge-integration.mjs",
     "fetch:reference": "node scripts/fetch-reference.mjs",
     "preview": "node scripts/preview.mjs",
     "build:preview": "npm run build && node scripts/build-preview.mjs",

@@ -11,6 +11,7 @@ import { CommitInspector } from './commitInspector';
 import { LegacyBlameProvider, blameViewType, prepareLegacyBlameDocuments } from './fileBlameEditor';
 import { NativeBlame } from './nativeBlame';
 import { webviewHtml } from './webviewHtml';
+import { MergeEditorIntegration } from './mergeEditorIntegration';
 
 const viewType = 'threeWayMerger.editor';
 interface Stored { meta: GitMerge; snapshot: Snapshot }
@@ -38,7 +39,10 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
       provideTextDocumentContent: uri => this.comparisons.get(uri.toString()) ?? '',
     }));
   }
-  private cacheUri(uri: vscode.Uri): vscode.Uri | undefined {
+  private cacheUri(meta: GitMerge): vscode.Uri | undefined {
+    // Git gives us a physical root. Keep one saved session when native Git and
+    // our conflict picker use different aliases such as /var and /private/var.
+    const uri = vscode.Uri.file(path.join(meta.root, meta.relative));
     return this.context.storageUri && vscode.Uri.joinPath(this.context.storageUri, `${hash(uri.toString())}.json`);
   }
   async openCustomDocument(uri: vscode.Uri, openContext: vscode.CustomDocumentOpenContext): Promise<MergeDocument> {
@@ -48,10 +52,21 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
     if (uri.scheme !== 'file') throw new Error('Open a file in a local or remote Git working tree.');
     const meta = await loadMerge(uri.fsPath);
     let saved: Stored | undefined;
-    const cache = backupId ? vscode.Uri.parse(backupId) : this.cacheUri(uri);
-    if (cache) {
-      try { saved = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(cache)).toString()); }
-      catch { /* first session or expired backup */ }
+    const canonical = this.cacheUri(meta);
+    const storage = this.context.storageUri;
+    const keys = [vscode.Uri.file(path.join(meta.root, meta.relative)), uri].map(value => `${hash(value.toString())}.json`);
+    const caches = backupId ? [vscode.Uri.parse(backupId)] : [
+      canonical,
+      ...(storage ? keys.map(key => vscode.Uri.joinPath(storage, key)) : []),
+      // The Marketplace rename changed the extension's storage directory.
+      ...(storage ? keys.map(key => vscode.Uri.joinPath(storage, '..', 'vscode-diff.three-way-merger', key)) : []),
+    ];
+    for (const cache of caches) {
+      if (!cache) continue;
+      try {
+        const candidate: Stored = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(cache)).toString());
+        if (candidate.meta.fingerprint === meta.fingerprint && candidate.meta.diskHash === meta.diskHash) { saved = candidate; break; }
+      } catch { /* first session or expired backup */ }
     }
     let snapshot = saved?.meta.fingerprint === meta.fingerprint && saved.meta.diskHash === meta.diskHash ? saved.snapshot : undefined;
     // A conflict can already contain manual work from another editor. Import a
@@ -118,7 +133,7 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
     if (message.type === 'complete') {
       if (document.session.remaining.length) throw new Error('Resolve or explicitly mark all remaining changes before completing this file.');
       await completeMerge(document.uri.fsPath, document.meta, document.session.result, document.session.deletion);
-      const cache = this.cacheUri(document.uri);
+      const cache = this.cacheUri(document.meta);
       if (cache) await vscode.workspace.fs.delete(cache).then(undefined, () => undefined);
       // The resulting file has been written and staged. Revert the editor's dirty
       // flag through its save lifecycle before closing, without writing it again.
@@ -147,7 +162,7 @@ class MergeProvider implements vscode.CustomEditorProvider<MergeDocument> {
   async saveCustomDocument(document: MergeDocument): Promise<void> {
     if (this.completed.has(document)) return;
     await saveResult(document.uri.fsPath, document.meta, document.session.result, document.session.deletion);
-    const cache = this.cacheUri(document.uri);
+    const cache = this.cacheUri(document.meta);
     if (cache) {
       await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(cache, '..'));
       await vscode.workspace.fs.writeFile(cache, Buffer.from(JSON.stringify({ meta: document.meta, snapshot: document.session.snapshot() } satisfies Stored)));
@@ -183,6 +198,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(inspector, blame,
     vscode.window.registerCustomEditorProvider(blameViewType, new LegacyBlameProvider(blame), { supportsMultipleEditorsPerDocument: false }));
   context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: false }));
+  context.subscriptions.push(new MergeEditorIntegration(viewType));
   const open = async (resource?: vscode.Uri | { resourceUri: vscode.Uri }): Promise<void> => {
     try {
       const uri = resource instanceof vscode.Uri ? resource : resource?.resourceUri ?? vscode.window.activeTextEditor?.document.uri;

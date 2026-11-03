@@ -38,6 +38,9 @@ AI integration or AI service dependency, including the magic-wand action.
 - Integrate with Git conflicts in VS Code, save the resulting file, and provide
   an explicit action to complete resolution of that file. Identify the two sides
   correctly for the Git operation in progress, including rebases.
+- Open our merger from Git's existing **Resolve in Merge Editor** button by
+  default, with an opt-out to restore VS Code's merger. Preserve unsaved edits
+  and forward unsupported merge requests to the original handler.
 
 ## Magic wand: Resolve Simple Conflicts
 

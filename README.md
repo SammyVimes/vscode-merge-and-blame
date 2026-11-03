@@ -16,10 +16,12 @@ telemetry, Java runtime, or JetBrains installation is required to use it.
 
 ## Install and use
 
-1. Install the generated `merge-and-blame-0.3.0.vsix` using **Extensions: Install
-   from VSIX…** in VS Code's Command Palette.
-2. With a conflicted Git repository open, run **Merge & Blame: Resolve Git
-   Conflicts** and select a file. You can also right-click a file under **Merge
+1. Install [Merge & Blame from the Marketplace](https://marketplace.visualstudio.com/items?itemName=SemyonDanilov.merge-and-blame),
+   or install the generated `merge-and-blame-0.3.1.vsix` using **Extensions:
+   Install from VSIX…** in VS Code's Command Palette.
+2. Open a conflicted file and click VS Code's existing **Resolve in Merge
+   Editor** button. It opens Merge & Blame automatically. You can also run
+   **Merge & Blame: Resolve Git Conflicts** or right-click a file under **Merge
    Changes** in Source Control and select **Merge & Blame: Open File**.
 3. Resolve changes and review the middle pane. **Save** writes the result without
    staging it. **Apply Changes** saves and stages that file once all its
@@ -29,6 +31,17 @@ telemetry, Java runtime, or JetBrains installation is required to use it.
 The result initially contains the common ancestor. Enable
 `threeWayMerger.autoApplyNonConflicting` to apply non-conflicting changes on open.
 Saved sessions retain both the result and resolution state when reopened.
+
+To keep VS Code's built-in merger, disable **Merge & Blame: Use As Default Merge
+Editor** (`threeWayMerger.useAsDefaultMergeEditor`). This takes effect without
+reloading. Ordinary files continue to open in the text editor. Save any unsaved
+edits before opening the merger.
+
+The button integration uses VS Code's internal `_open.mergeEditor` command,
+because the extension API does not expose custom merge-editor providers. It
+redirects supported Git index conflicts; other merge requests use the original
+handler. If a future VS Code version changes this internal command, the explicit
+Merge & Blame commands remain available.
 
 ## Git blame
 
@@ -120,6 +133,11 @@ VS Code profile and temporary Git repository, exercises the real extension UI,
 and verifies the resulting working tree and index. Set `VSCODE_EXECUTABLE` if VS
 Code is installed elsewhere. Set `MERGER_TEST_AUTO=1` to also exercise automatic
 initial application and its native undo lifecycle.
+`npm run test:merge-integration` checks ordinary files, native fallback,
+unsaved-text protection, and toggling the default merge editor in an isolated
+extension host. The UI test clicks Git's actual **Resolve in Merge Editor**
+button and verifies saved-session recovery across path aliases and the old
+extension storage directory.
 `npm run test:blame` separately verifies annotations, historical commit/file
 selection, unsaved edits, native editor retention, TypeScript hovers, blank
 lines, scrolling with a paused extension host, native commit diffs, commit

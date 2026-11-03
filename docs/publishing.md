@@ -79,3 +79,7 @@ copy because both packages contribute the same commands and custom-editor IDs.
 Existing `threeWayMerger.*` settings, command IDs and editor view types are
 preserved for compatibility. The old name is intentionally retained in these
 internal identifiers.
+
+Saved merge sessions are also read from the previous extension's workspace
+storage directory when their Git index and saved-file fingerprints still match.
+Subsequent saves use the renamed extension's storage directory.

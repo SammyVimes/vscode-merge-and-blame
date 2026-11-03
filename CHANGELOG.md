@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Open Merge & Blame from Git's existing **Resolve in Merge Editor** button.
+- Add **Use As Default Merge Editor**, enabled by default, with immediate opt-out.
+- Preserve unsaved text before switching merge tools; leave unsupported merges to VS Code.
+- Restore saved merge sessions across path aliases and the previous extension ID.
+
 ## 0.3.0
 
 - Rename the extension to **Merge & Blame**.

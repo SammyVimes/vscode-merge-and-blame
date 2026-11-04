@@ -2,7 +2,7 @@
   "name": "merge-and-blame",
   "displayName": "Merge & Blame",
   "description": "An IntelliJ-style three-way merge editor and Git blame for VS Code.",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "publisher": "SemyonDanilov",
   "license": "Apache-2.0",
   "repository": {

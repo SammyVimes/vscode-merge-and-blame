@@ -43,9 +43,13 @@ async function until(fn, description) {
   throw new Error(`Timed out: ${description}`);
 }
 let browser;
+let originalClipboard;
 try {
   await until(async () => { try { return (await fetch(`http://127.0.0.1:${port}/json/version`)).ok; } catch { return false; } }, 'VS Code debugger');
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  // Used by the test driver to inspect the system clipboard. Shortcuts still
+  // travel through VS Code's webview command forwarding, as in normal use.
+  await browser.contexts()[0].grantPermissions(['clipboard-read', 'clipboard-write']);
   const page = await until(async () => browser.contexts().flatMap(c => c.pages()).find(p => p.url().includes('workbench')), 'workbench page');
   page.setDefaultTimeout(20000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));
@@ -87,6 +91,42 @@ try {
   }, 'merge webview');
   let frame = await getFrame();
   assert.equal(await frame.locator('.preview-bar').count(), 0, 'sample controls belong only to the standalone browser preview');
+  originalClipboard = await page.evaluate(() => navigator.clipboard.readText());
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+  const selectLine = async (pane, text) => {
+    await frame.locator(`#${pane}-editor .view-line`).filter({ hasText: text }).first().click();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Shift+End');
+  };
+  // Monaco recycles absolutely positioned line nodes, so DOM order can differ
+  // from the displayed order after inserting multiple lines.
+  const resultText = () => frame.locator('#result-editor .view-line').evaluateAll(lines => lines
+    .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
+    .map(line => line.textContent.replace(/\u00a0/g, ' ')).join('\n'));
+  const beforeClipboard = await resultText();
+  for (const [pane, text] of [['left', 'HEADING'], ['result', auto ? 'HEADING' : 'heading'], ['right', 'heading']]) {
+    await page.evaluate(() => navigator.clipboard.writeText('clipboard sentinel'));
+    await selectLine(pane, text);
+    await page.keyboard.press(`${modifier}+c`);
+    await until(async () => await page.evaluate(() => navigator.clipboard.readText()) === text, `copy from ${pane} pane`);
+  }
+  const pasted = '// clipboard 🐙\n// second line';
+  await page.evaluate(text => navigator.clipboard.writeText(text), pasted);
+  await selectLine('result', auto ? 'HEADING' : 'heading');
+  await page.keyboard.press(`${modifier}+v`);
+  await until(async () => (await resultText()).includes(pasted), 'paste Unicode and multiple lines into result pane');
+  await frame.locator('#undo').click();
+  await until(async () => await resultText() === beforeClipboard, 'undo paste through custom document history');
+  await frame.locator('#redo').click();
+  await until(async () => (await resultText()).includes(pasted), 'redo paste through custom document history');
+  await frame.locator('#undo').click();
+  await until(async () => await resultText() === beforeClipboard, 'restore result after paste test');
+  await selectLine('result', auto ? 'HEADING' : 'heading');
+  await page.keyboard.press(`${modifier}+x`);
+  await until(async () => await page.evaluate(() => navigator.clipboard.readText()) === (auto ? 'HEADING' : 'heading')
+    && await resultText() !== beforeClipboard, 'cut result selection');
+  await frame.locator('#undo').click();
+  await until(async () => await resultText() === beforeClipboard, 'undo cut through custom document history');
   if (auto) {
     await until(async () => (await frame.locator('#status').innerText()).includes('2 unresolved'), 'automatic initial merge');
     await frame.locator('#undo').click();
@@ -166,7 +206,7 @@ try {
   assert.equal(run('show', ':merge.ts'), expected);
   assert.equal(await fs.readFile(file, 'utf8'), expected);
   assert.equal(errors.filter(e => /worker|Content Security Policy|importScripts/i.test(e)).length, 0, errors.join('\n'));
-  console.log(`VS Code extension host (auto-apply=${auto}): native Resolve in Merge Editor button, Git conflict, bulk, wand, arrows, ignore, native undo/redo, save, comparisons, reopen, and staging passed.`);
+  console.log(`VS Code extension host (auto-apply=${auto}): native Resolve in Merge Editor button, clipboard shortcuts in all panes, cut/paste undo/redo, Git conflict, bulk, wand, arrows, ignore, native undo/redo, save, comparisons, reopen, and staging passed.`);
 } catch (error) {
   for (const page of browser?.contexts().flatMap(context => context.pages()) ?? []) {
     await page.screenshot({ path: '.reference/extension-failed.png' }).catch(() => undefined);
@@ -176,6 +216,10 @@ try {
   console.error(`Test workspace: ${repo}`);
   throw error;
 } finally {
+  if (originalClipboard !== undefined) {
+    const page = browser?.contexts().flatMap(context => context.pages()).find(page => page.url().includes('workbench'));
+    await page?.evaluate(text => navigator.clipboard.writeText(text), originalClipboard).catch(() => undefined);
+  }
   await browser?.close(); child.kill('SIGKILL');
   await fs.writeFile('.reference/extension-test.log', output);
 }

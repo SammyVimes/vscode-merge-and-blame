@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('line-number menu toggles annotations and clicking blame focuses the file in its commit', async ({ page }) => {
-  const numbers = page.locator('#left-editor .line-numbers').first();
+  const numbers = page.locator('#left-editor .margin-view-overlays .line-numbers').first();
   await numbers.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Show Git Blame', exact: true }).click();
   const column = page.locator('#left-editor .blame-column');
@@ -41,7 +41,7 @@ test('line-number menu toggles annotations and clicking blame focuses the file i
 });
 
 test('result edits refresh annotations and uncommitted rows cannot open a commit', async ({ page }) => {
-  await page.locator('#result-editor .line-numbers').first().click({ button: 'right' });
+  await page.locator('#result-editor .margin-view-overlays .line-numbers').first().click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Show Git Blame', exact: true }).click();
   const column = page.locator('#result-editor .blame-column');
   await expect(column.locator('.blame-row').first()).toBeVisible();

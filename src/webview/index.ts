@@ -93,6 +93,9 @@ function init(): void {
     model.setEOL(monaco.editor.EndOfLineSequence.LF);
     const editor = monaco.editor.create($(id), {
       model, readOnly: index !== 1, domReadOnly: index !== 1, automaticLayout: true,
+      // VS Code forwards clipboard shortcuts through document.execCommand.
+      // Keep a textarea target: Electron cannot paste into EditContext's div.
+      editContext: false,
       fontSize: state.fontSize, fontFamily: "'JetBrains Mono', Menlo, Consolas, monospace",
       lineHeight: 21, minimap: { enabled: false }, scrollBeyondLastLine: false, wordWrap: 'off',
       folding: false, glyphMargin: index === 1, lineNumbersMinChars: 3, overviewRulerLanes: 2,

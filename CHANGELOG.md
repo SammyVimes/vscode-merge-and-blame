@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.5
+
+- Fix clipboard shortcuts in the merge panes by using Monaco's textarea input, compatible with VS Code's forwarded Copy, Cut and Paste commands.
+- Verify copying from all three panes, multiline Unicode paste, cut, and custom-document undo/redo in a real VS Code window.
+
 ## 0.3.4
 
 - Fetch the merge UI as a gzip bundle and inflate it in the webview; retain the raw script as a compatibility fallback.

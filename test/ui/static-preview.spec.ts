@@ -29,7 +29,7 @@ test('standalone demo loads assets, workers, merge controls and blame below a pr
     await expect(page.getByRole('combobox', { name: 'Preview sample' })).toHaveValue('quick');
     await page.getByRole('button', { name: 'Apply local change 1', exact: true }).click();
     await expect.poll(() => page.evaluate(() => window.mergerTest!.session.result)).toContain('name: "local"');
-    await page.locator('#left-editor .line-numbers').first().click({ button: 'right' });
+    await page.locator('#left-editor .margin-view-overlays .line-numbers').first().click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Show Git Blame', exact: true }).click();
     await page.locator('#left-editor .blame-row').first().click();
     await expect(page.locator('.commit-diff .line-insert, .commit-diff .char-insert').first()).toBeVisible();

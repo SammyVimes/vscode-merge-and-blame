@@ -1,6 +1,6 @@
 import { monaco, installEditorEnvironment, language, theme } from './editor';
 import { MergeSession, isResolved, type Command, type Hunk } from '../core/merge';
-import { edits, lineAt } from '../core/diff';
+import { edits } from '../core/diff';
 import { wordEdits } from '../core/wordDiff';
 import type { EditorState, ToHost, ToView } from '../protocol';
 import { demoSamples } from './demoSamples';
@@ -78,6 +78,8 @@ let applying = false;
 let sync = true;
 let scrolling = false;
 let renderFrame = 0;
+let contents: readonly string[] = [];
+let scrollAnchors: { a: number; b: number }[][][] = [];
 const editors: monaco.editor.IStandaloneCodeEditor[] = [];
 const blameGutters: BlameGutter[] = [];
 const collections: monaco.editor.IEditorDecorationsCollection[] = [];
@@ -107,10 +109,13 @@ function init(): void {
     editors.push(editor); collections.push(editor.createDecorationsCollection());
     blameGutters.push(new BlameGutter(editor, (['left', 'result', 'right'] as const)[index], message => host.postMessage(message)));
     editor.onDidScrollChange(event => {
-      if (sync && !scrolling && (event.scrollTopChanged || event.scrollLeftChanged)) {
+      if (sync && !scrolling && !applying && (event.scrollTopChanged || event.scrollLeftChanged)) {
         scrolling = true;
         const top = (event.scrollTop - 10) / 21 + 1;
-        for (let j = 0; j < editors.length; j++) if (j !== index) editors[j].setScrollPosition({ scrollTop: (mapLine(top, index, j) - 1) * 21 + 10, scrollLeft: event.scrollLeft });
+        for (let j = 0; j < editors.length; j++) if (j !== index) editors[j].setScrollPosition({
+          ...(event.scrollTopChanged ? { scrollTop: (mapLine(top, index, j) - 1) * 21 + 10 } : {}),
+          scrollLeft: event.scrollLeft,
+        });
         scrolling = false;
       }
       scheduleGutters();
@@ -120,7 +125,8 @@ function init(): void {
       if (line) {
         const h = session.hunks.find(h => {
           const range = index === 0 ? h.left : index === 1 ? h.result : h.right;
-          return line >= lineAt(contentFor(index), range.start) && line <= lineAt(contentFor(index), range.end);
+          const model = editor.getModel()!;
+          return line >= model.getPositionAt(range.start).lineNumber && line <= model.getPositionAt(range.end).lineNumber;
         });
         if (h) { selected = h.id; renderSelection(); scheduleGutters(); }
       }
@@ -146,7 +152,7 @@ function init(): void {
   render();
   if (selected !== undefined) reveal(selected);
 }
-function contentFor(index: number): string { return index === 0 ? session.input.left : index === 1 ? session.result : session.input.right; }
+function contentFor(index: number): string { return contents[index]; }
 function changeKind(h: Hunk): 'conflict' | 'added' | 'deleted' | 'modified' {
   if (h.conflict) return 'conflict';
   if (h.baseLines.start === h.baseLines.end) return 'added';
@@ -154,19 +160,30 @@ function changeKind(h: Hunk): 'conflict' | 'added' | 'deleted' | 'modified' {
   return 'modified';
 }
 function rangeFor(h: Hunk, index: number): { start: number; end: number } { return index === 0 ? h.left : index === 1 ? h.result : h.right; }
+function updateScrollAnchors(): void {
+  // Monaco already indexes line starts. Build mappings only when merge state
+  // changes; scrolling must never split or reassemble whole file buffers.
+  const lines = editors.map((editor, index) => {
+    const model = editor.getModel()!;
+    return [1, ...session.hunks.flatMap(h => {
+      const range = rangeFor(h, index);
+      return [model.getPositionAt(range.start).lineNumber, model.getPositionAt(range.end).lineNumber];
+    }), model.getLineCount()];
+  });
+  scrollAnchors = lines.map(source => lines.map(target => source.map((a, index) => ({ a, b: target[index] })).sort((a, b) => a.a - b.a)));
+}
 function mapLine(line: number, from: number, to: number): number {
-  const anchors = [{ a: 1, b: 1 }];
-  for (const h of session.hunks) {
-    for (const key of ['start', 'end'] as const) anchors.push({ a: lineAt(contentFor(from), rangeFor(h, from)[key]), b: lineAt(contentFor(to), rangeFor(h, to)[key]) });
+  const anchors = scrollAnchors[from]?.[to];
+  if (!anchors) return line;
+  let low = 1, high = anchors.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (anchors[middle].a <= line) low = middle + 1;
+    else high = middle;
   }
-  anchors.push({ a: editors[from].getModel()!.getLineCount(), b: editors[to].getModel()!.getLineCount() });
-  anchors.sort((a, b) => a.a - b.a);
-  let previous = anchors[0];
-  for (const next of anchors.slice(1)) {
-    if (line < next.a) return previous.b + (line - previous.a) * (next.b - previous.b) / Math.max(1, next.a - previous.a);
-    previous = next;
-  }
-  return previous.b + line - previous.a;
+  const previous = anchors[low - 1], next = anchors[low];
+  return next ? previous.b + (line - previous.a) * (next.b - previous.b) / Math.max(1, next.a - previous.a)
+    : previous.b + line - previous.a;
 }
 function send(command: Command): void {
   try {
@@ -185,19 +202,21 @@ function send(command: Command): void {
 }
 function render(): void {
   if (!editors.length) return;
+  contents = [session.input.left, session.result, session.input.right];
   for (const [index, value] of [[0, session.input.left], [2, session.input.right]] as const) {
     if (editors[index].getValue() !== value) editors[index].setValue(value);
   }
   const model = editors[1].getModel()!;
-  if (model.getValue() !== session.result) {
+  if (model.getValue() !== contents[1]) {
     applying = true;
     const saved = editors[1].saveViewState();
     // Keep Monaco's model and cursor; global undo lives in the merge session.
-    const changes = edits(model.getValue(), session.result);
+    const changes = edits(model.getValue(), contents[1]);
     model.applyEdits(changes.map(edit => ({ range: monaco.Range.fromPositions(model.getPositionAt(edit.start), model.getPositionAt(edit.end)), text: edit.text })));
     if (saved) editors[1].restoreViewState(saved);
     applying = false;
   }
+  updateScrollAnchors();
   $('file-name').textContent = session.input.name;
   $('left-label').textContent = session.input.leftLabel.replace(/^Local · /, '') + (session.input.leftDeleted ? ' · file deleted' : '');
   $('right-label').textContent = session.input.rightLabel.replace(/^Incoming · /, '') + (session.input.rightDeleted ? ' · file deleted' : '');
@@ -244,17 +263,30 @@ function renderSelection(): void {
   disable('reset', !h || !(isResolved(h) || h.manual || h.resolved.left || h.resolved.right));
 }
 function showError(message: string): void { $('error').hidden = false; $('error').textContent = message; }
-function scheduleGutters(): void { cancelAnimationFrame(renderFrame); renderFrame = requestAnimationFrame(drawGutters); }
-function yAt(index: number, offset: number): number { return editors[index].getTopForLineNumber(lineAt(contentFor(index), offset)) - editors[index].getScrollTop(); }
+function scheduleGutters(): void {
+  if (!renderFrame) renderFrame = requestAnimationFrame(() => { renderFrame = 0; drawGutters(); });
+}
+function yAt(index: number, offset: number): number {
+  return editors[index].getTopForLineNumber(editors[index].getModel()!.getPositionAt(offset).lineNumber) - editors[index].getScrollTop();
+}
 function drawGutters(): void {
   if (!editors.length) return;
   const resultActions = $('result-actions');
-  resultActions.replaceChildren();
+  const resultHeight = resultActions.clientHeight;
+  const gutters = ([['left-gutter', 'left', 0], ['right-gutter', 'right', 2]] as const).map(([id, side, index]) => {
+    const gutter = $(id);
+    return {
+      side, index, svg: gutter.querySelector('svg')!, controls: gutter.querySelector('.controls')!,
+      width: gutter.clientWidth, height: gutter.clientHeight - 44,
+      controlWidth: Number.parseFloat(getComputedStyle(gutter).getPropertyValue('--control-lane')),
+    };
+  });
+  const wands = document.createDocumentFragment();
   for (const h of session.hunks) {
     if (!h.conflict || h.simple === null || !session.eligible(h) || session.input.leftDeleted || session.input.rightDeleted) continue;
     const top = yAt(1, h.result.start);
     const bottom = yAt(1, h.result.end) + 21;
-    if (bottom < 0 || top >= resultActions.clientHeight) continue;
+    if (bottom < 0 || top >= resultHeight) continue;
     const wand = document.createElement('button');
     wand.className = 'conflict-wand'; wand.innerHTML = icon('wand');
     wand.title = `Resolve simple conflict ${h.id + 1}`;
@@ -262,23 +294,18 @@ function drawGutters(): void {
     wand.dataset.hunk = String(h.id); wand.dataset.action = 'magic';
     wand.style.top = `${Math.max(0, top)}px`;
     wand.addEventListener('click', () => { selected = h.id; send({ type: 'magic', id: h.id }); });
-    resultActions.append(wand);
+    wands.append(wand);
   }
-  for (const [id, side, index] of [['left-gutter', 'left', 0], ['right-gutter', 'right', 2]] as const) {
-    const gutter = $(id);
-    const svg = gutter.querySelector('svg')!;
-    const controls = gutter.querySelector('.controls')!;
-    const width = gutter.clientWidth;
-    const controlWidth = Number.parseFloat(getComputedStyle(gutter).getPropertyValue('--control-lane'));
-    const height = gutter.clientHeight - 44;
+  resultActions.replaceChildren(wands);
+  for (const { side, index, svg, controls, width, controlWidth, height } of gutters) {
+    const shapes = document.createDocumentFragment(), rows = document.createDocumentFragment();
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    svg.innerHTML = ''; controls.replaceChildren();
     for (const h of session.hunks) {
       const range = h[side];
       let sourceTop = yAt(index, range.start);
       let sourceBottom = range.start === range.end ? sourceTop + 21 : yAt(index, range.end) + (contentFor(index)[range.end - 1] === '\n' ? 0 : 21);
       let resultTop = yAt(1, h.result.start);
-      let resultBottom = h.result.start === h.result.end ? resultTop + 2 : yAt(1, h.result.end) + (session.result[h.result.end - 1] === '\n' ? 0 : 21);
+      let resultBottom = h.result.start === h.result.end ? resultTop + 2 : yAt(1, h.result.end) + (contentFor(1)[h.result.end - 1] === '\n' ? 0 : 21);
       if (Math.max(sourceBottom, resultBottom) < 0 || Math.min(sourceTop, resultTop) > height) continue;
       const a = side === 'left' ? sourceTop : resultTop;
       const b = side === 'left' ? sourceBottom : resultBottom;
@@ -296,7 +323,7 @@ function drawGutters(): void {
       shape.dataset.hunk = String(h.id);
       shape.setAttribute('class', `${changeKind(h)} ${isResolved(h) ? 'resolved' : ''} ${h.id === selected ? 'selected' : ''}`);
       shape.addEventListener('click', () => { selected = h.id; renderSelection(); scheduleGutters(); });
-      svg.append(shape);
+      shapes.append(shape);
       if (!h[side === 'left' ? 'leftChanged' : 'rightChanged']) continue;
       const row = document.createElement('div'); row.className = 'change-controls';
       row.style.top = `${sourceTop}px`;
@@ -310,7 +337,7 @@ function drawGutters(): void {
         reset.setAttribute('aria-label', `${reset.title} from ${side === 'left' ? 'local' : 'incoming'} side`);
         reset.dataset.hunk = String(h.id); reset.dataset.action = 'reset'; reset.dataset.side = side;
         reset.addEventListener('click', () => { selected = h.id; send({ type: 'reset', id: h.id }); });
-        row.append(status, reset); controls.append(row); continue;
+        row.append(status, reset); rows.append(row); continue;
       }
       for (const type of side === 'left' ? ['ignore', 'apply'] as const : ['apply', 'ignore'] as const) {
         const btn = document.createElement('button');
@@ -321,15 +348,16 @@ function drawGutters(): void {
         btn.addEventListener('click', event => { selected = h.id; send({ type, side, id: h.id, resolve: event.ctrlKey || event.metaKey }); });
         row.append(btn);
       }
-      controls.append(row);
+      rows.append(row);
     }
+    svg.replaceChildren(shapes); controls.replaceChildren(rows);
   }
 }
 function reveal(id: number): void {
   const h = session.hunks.find(h => h.id === id);
   if (!h) return;
   scrolling = true;
-  for (let i = 0; i < editors.length; i++) editors[i].revealLineInCenter(lineAt(contentFor(i), rangeFor(h, i).start));
+  for (let i = 0; i < editors.length; i++) editors[i].revealLineInCenter(editors[i].getModel()!.getPositionAt(rangeFor(h, i).start).lineNumber);
   scrolling = false;
   renderSelection(); scheduleGutters();
 }

@@ -17,7 +17,7 @@ telemetry, Java runtime, or JetBrains installation is required to use it.
 ## Install and use
 
 1. Install [Merge & Blame from the Marketplace](https://marketplace.visualstudio.com/items?itemName=SemyonDanilov.merge-and-blame),
-   or install the generated `merge-and-blame-0.3.5.vsix` using **Extensions:
+   or install the generated `merge-and-blame-0.3.6.vsix` using **Extensions:
    Install from VSIX…** in VS Code's Command Palette.
 2. Open a conflicted file and click VS Code's existing **Resolve in Merge
    Editor** button. It opens Merge & Blame automatically. You can also run

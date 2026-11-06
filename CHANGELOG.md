@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6
+
+- Fix slow scrolling in large merge files: use Monaco's indexed line positions and cache scroll mappings when merge state changes, removing repeated full-buffer splits and joins from each scroll event.
+- Batch gutter geometry reads and DOM updates, and coalesce redraw requests per frame.
+- Keep vertical positions unchanged during horizontal scrolling.
+- Add 5500-line regression coverage for scrolling, mapping refresh after manual edits, apply/undo, and visible gutter controls.
+
 ## 0.3.5
 
 - Fix clipboard shortcuts in the merge panes by using Monaco's textarea input, compatible with VS Code's forwarded Copy, Cut and Paste commands.
